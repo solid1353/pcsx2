@@ -159,6 +159,7 @@ namespace PINEServer
 		MsgUUID = 0xD, /**< Returns the game UUID. */
 		MsgGameVersion = 0xE, /**< Returns the game verion. */
 		MsgStatus = 0xF, /**< Returns the emulator status. */
+		MsgReloadPatches = 0x10, /**< Reloads patches from disk. */
 		MsgUnimplemented = 0xFF /**< Unimplemented IPC message. */
 	};
 
@@ -744,6 +745,14 @@ PINEServer::IPCBuffer PINEServer::ParseCommand(std::span<u8> buf, std::vector<u8
 
 				ToResultVector(ret_buffer, status, ret_cnt);
 				ret_cnt += 4;
+				break;
+			}
+			case MsgReloadPatches:
+			{
+				if (!VMManager::HasValidVM())
+					goto error;
+
+				Host::RunOnCPUThread([]() { VMManager::ReloadPatches(true, false, true, true); }, true);
 				break;
 			}
 			default:
