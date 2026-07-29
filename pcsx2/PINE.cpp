@@ -163,6 +163,9 @@ namespace PINEServer
 		MsgStatus = 0xF, /**< Returns the emulator status. */
 		MsgReloadPatches = 0x10, /**< Reloads patches from disk. */
 		MsgScreenshot = 0x11, /**< Queues a native screenshot. */
+		MsgPause = 0x12, /**< Pauses the virtual machine. */
+		MsgResume = 0x13, /**< Resumes the virtual machine. */
+		MsgClearExecutionCaches = 0x14, /**< Clears CPU execution caches. */
 		MsgUnimplemented = 0xFF /**< Unimplemented IPC message. */
 	};
 
@@ -758,7 +761,8 @@ PINEServer::IPCBuffer PINEServer::ParseCommand(std::span<u8> buf, std::vector<u8
 				Host::RunOnCPUThread([]() {
 					VMManager::ReloadPatches(true, false, true, true);
 					VMManager::Internal::ClearCPUExecutionCaches();
-				}, true);
+				},
+					true);
 				break;
 			}
 			case MsgScreenshot:
@@ -768,7 +772,32 @@ PINEServer::IPCBuffer PINEServer::ParseCommand(std::span<u8> buf, std::vector<u8
 
 				Host::RunOnCPUThread([]() {
 					MTGS::RunOnGSThread([]() { GSQueueSnapshot(std::string(), 0); });
-				}, true);
+				},
+					true);
+				break;
+			}
+			case MsgPause:
+			{
+				if (!VMManager::HasValidVM())
+					goto error;
+
+				Host::RunOnCPUThread([]() { VMManager::SetPaused(true); }, true);
+				break;
+			}
+			case MsgResume:
+			{
+				if (!VMManager::HasValidVM())
+					goto error;
+
+				Host::RunOnCPUThread([]() { VMManager::SetPaused(false); }, true);
+				break;
+			}
+			case MsgClearExecutionCaches:
+			{
+				if (!VMManager::HasValidVM())
+					goto error;
+
+				Host::RunOnCPUThread([]() { VMManager::Internal::ClearCPUExecutionCaches(); }, true);
 				break;
 			}
 			default:
