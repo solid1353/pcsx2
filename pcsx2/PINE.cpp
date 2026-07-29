@@ -3,7 +3,9 @@
 
 #include "BuildVersion.h"
 #include "Common.h"
+#include "GS/GS.h"
 #include "Host.h"
+#include "MTGS.h"
 #include "Elfheader.h"
 #include "SaveState.h"
 #include "PINE.h"
@@ -160,6 +162,7 @@ namespace PINEServer
 		MsgGameVersion = 0xE, /**< Returns the game verion. */
 		MsgStatus = 0xF, /**< Returns the emulator status. */
 		MsgReloadPatches = 0x10, /**< Reloads patches from disk. */
+		MsgScreenshot = 0x11, /**< Queues a native screenshot. */
 		MsgUnimplemented = 0xFF /**< Unimplemented IPC message. */
 	};
 
@@ -755,6 +758,16 @@ PINEServer::IPCBuffer PINEServer::ParseCommand(std::span<u8> buf, std::vector<u8
 				Host::RunOnCPUThread([]() {
 					VMManager::ReloadPatches(true, false, true, true);
 					VMManager::Internal::ClearCPUExecutionCaches();
+				}, true);
+				break;
+			}
+			case MsgScreenshot:
+			{
+				if (!VMManager::HasValidVM())
+					goto error;
+
+				Host::RunOnCPUThread([]() {
+					MTGS::RunOnGSThread([]() { GSQueueSnapshot(std::string(), 0); });
 				}, true);
 				break;
 			}
