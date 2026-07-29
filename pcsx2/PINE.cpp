@@ -752,7 +752,10 @@ PINEServer::IPCBuffer PINEServer::ParseCommand(std::span<u8> buf, std::vector<u8
 				if (!VMManager::HasValidVM())
 					goto error;
 
-				Host::RunOnCPUThread([]() { VMManager::ReloadPatches(true, false, true, true); }, true);
+				Host::RunOnCPUThread([]() {
+					VMManager::ReloadPatches(true, false, true, true);
+					VMManager::Internal::ClearCPUExecutionCaches();
+				}, true);
 				break;
 			}
 			default:
