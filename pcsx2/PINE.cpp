@@ -9,12 +9,15 @@
 #include "Elfheader.h"
 #include "SaveState.h"
 #include "PINE.h"
+#include "SIO/Pad/Pad.h"
+#include "SIO/Pad/PadDualshock2.h"
 #include "VMManager.h"
 #include "vtlb.h"
 #include "common/Error.h"
 #include "common/Threading.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <span>
@@ -166,6 +169,7 @@ namespace PINEServer
 		MsgPause = 0x12, /**< Pauses the virtual machine. */
 		MsgResume = 0x13, /**< Resumes the virtual machine. */
 		MsgClearExecutionCaches = 0x14, /**< Clears CPU execution caches. */
+		MsgPadPulse = 0x15, /**< Pulses one DualShock 2 binding. */
 		MsgUnimplemented = 0xFF /**< Unimplemented IPC message. */
 	};
 
@@ -798,6 +802,41 @@ PINEServer::IPCBuffer PINEServer::ParseCommand(std::span<u8> buf, std::vector<u8
 					goto error;
 
 				Host::RunOnCPUThread([]() { VMManager::Internal::ClearCPUExecutionCaches(); }, true);
+				break;
+			}
+			case MsgPadPulse:
+			{
+				if (!VMManager::HasValidVM())
+					goto error;
+				if (!SafetyChecks(buf_cnt, 4, ret_cnt, 0, buf_size)) [[unlikely]]
+					goto error;
+
+				const u8 controller = FromSpan<u8>(buf, buf_cnt);
+				const u8 binding = FromSpan<u8>(buf, buf_cnt + 1);
+				const u16 duration_ms = FromSpan<u16>(buf, buf_cnt + 2);
+				if (controller >= Pad::NUM_CONTROLLER_PORTS)
+					goto error;
+
+				PadBase* const pad = Pad::GetPad(controller);
+				if (!pad ||
+					pad->GetType() != Pad::ControllerType::DualShock2 ||
+					binding >= PadDualshock2::Inputs::PAD_ANALOG ||
+					duration_ms == 0 ||
+					duration_ms > 1000)
+				{
+					goto error;
+				}
+
+				Host::RunOnCPUThread([controller, binding]() {
+					Pad::SetControllerState(controller, binding, 1.0f);
+				},
+					true);
+				std::this_thread::sleep_for(std::chrono::milliseconds(duration_ms));
+				Host::RunOnCPUThread([controller, binding]() {
+					Pad::SetControllerState(controller, binding, 0.0f);
+				},
+					true);
+				buf_cnt += 4;
 				break;
 			}
 			default:
