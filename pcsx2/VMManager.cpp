@@ -81,6 +81,8 @@
 
 namespace VMManager
 {
+	static std::optional<int> s_pine_port_override;
+
 	static void SetDefaultLoggingSettings(SettingsInterface& si);
 	static void UpdateLoggingSettings(SettingsInterface& si);
 
@@ -472,6 +474,11 @@ void VMManager::Internal::SetFileLogPath(std::string path)
 	s_log_force_file_log = Log::SetFileOutputLevel(LOGLEVEL_DEBUG, std::move(path));
 }
 
+void VMManager::Internal::SetPINEPortOverride(int port)
+{
+	s_pine_port_override = port;
+}
+
 void VMManager::Internal::SetBlockSystemConsole(bool block)
 {
 	s_log_block_system_console = block;
@@ -654,6 +661,8 @@ void VMManager::LoadCoreSettings(SettingsInterface& si)
 {
 	SettingsLoadWrapper slw(si);
 	EmuConfig.LoadSave(slw);
+	if (s_pine_port_override.has_value())
+		EmuConfig.PINESlot = *s_pine_port_override;
 	Patch::ApplyPatchSettingOverrides();
 
 	// Achievements hardcore mode disallows setting some configuration options.

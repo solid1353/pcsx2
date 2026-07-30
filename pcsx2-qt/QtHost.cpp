@@ -2130,6 +2130,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -nogui: Hides main window while running (implies batch mode).\n");
 	std::fprintf(stderr, "  -portable: Force enable portable mode to store data in local PCSX2 path instead of the default configuration path. Overrides '-datapath'.\n");
 	std::fprintf(stderr, "  -datapath <path>: Specify the directory to be used for all application data.\n");
+	std::fprintf(stderr, "  -pine-port <port>: Override the PINE TCP port for this process without changing persistent settings.\n");
 	std::fprintf(stderr, "  -elf <file>: Overrides the boot ELF with the specified filename.\n");
 	std::fprintf(stderr, "  -gameargs <string>: passes the specified quoted space-delimited string of launch arguments.\n");
 	std::fprintf(stderr, "  -disc <path>: Uses the specified host DVD drive as a source.\n");
@@ -2212,6 +2213,20 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 			{
 				std::string path = (++it)->toStdString();
 				EmuConfig.CustomDataPath = path;
+				continue;
+			}
+			else if (CHECK_ARG_PARAM(QStringLiteral("-pine-port")))
+			{
+				bool ok = false;
+				const int port = (++it)->toInt(&ok);
+				if (!ok || port < 1024 || port > 65535)
+				{
+					QMessageBox::critical(nullptr, QStringLiteral("Error"),
+						QStringLiteral("PINE port must be an integer between 1024 and 65535."));
+					return false;
+				}
+
+				VMManager::Internal::SetPINEPortOverride(port);
 				continue;
 			}
 			else if (CHECK_ARG(QStringLiteral("-fastboot")))
