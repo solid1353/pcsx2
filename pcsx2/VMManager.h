@@ -285,6 +285,9 @@ namespace VMManager
 		/// Overrides the filename used for the file log.
 		void SetFileLogPath(std::string path);
 
+		/// Overrides the PINE TCP port for this process without changing persistent settings.
+		void SetPINEPortOverride(int port);
+
 		/// Prevents the system console from being displayed.
 		void SetBlockSystemConsole(bool block);
 
