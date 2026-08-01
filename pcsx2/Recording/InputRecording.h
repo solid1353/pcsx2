@@ -19,7 +19,7 @@ public:
 	};
 
 	bool create(const std::string& filename, const bool fromSaveState, const std::string& authorName);
-	bool play(const std::string& path);
+	bool play(const std::string& path, bool capture_markers = false);
 	void stop();
 
 	static void InformGSThread();
@@ -53,6 +53,11 @@ private:
 	bool m_initial_load_complete = false;
 	bool m_is_active = false;
 	bool m_watching_for_rerecords = false;
+	bool m_capture_markers = false;
+	bool m_capture_marker_down = false;
+	u32 m_capture_index = 0;
+	std::string m_capture_savestate_directory;
+	std::string m_capture_snapshot_directory;
 
 	// A consistent way to run actions at the end of the each frame (ie. stop the recording)
 	std::queue<std::function<void()>> m_recordingQueue;
@@ -64,6 +69,7 @@ private:
 
 	void initializeState();
 	void closeActiveFile();
+	void captureReplayMarker();
 };
 
 extern InputRecording g_InputRecording;

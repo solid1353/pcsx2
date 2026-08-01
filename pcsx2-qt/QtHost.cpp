@@ -31,6 +31,7 @@
 #include "pcsx2/Input/InputManager.h"
 #include "pcsx2/MTGS.h"
 #include "pcsx2/PerformanceMetrics.h"
+#include "pcsx2/Recording/InputRecording.h"
 #include "pcsx2/SPU2/spu2.h"
 #include "pcsx2/VMManager.h"
 
@@ -228,10 +229,19 @@ void EmuThread::startVM(std::shared_ptr<VMBootParameters> boot_params)
 		});
 	};
 
-	auto done_callback = [](VMBootResult result, const Error& error) {
+	const std::string input_recording = boot_params->input_recording;
+	auto done_callback = [input_recording](VMBootResult result, const Error& error) {
 		if (result != VMBootResult::StartupSuccess)
 		{
 			Host::ReportErrorAsync(TRANSLATE_STR("QtHost", "Startup Error"), error.GetDescription());
+			return;
+		}
+		if (!input_recording.empty() && !g_InputRecording.play(input_recording, true))
+		{
+			Host::ReportErrorAsync(TRANSLATE_STR("QtHost", "Input Recording Error"),
+				TRANSLATE_STR("QtHost", "Failed to start power-on input recording replay with marker capture."));
+			VMManager::Shutdown(false);
+			g_emu_thread->getEventLoop()->quit();
 			return;
 		}
 
@@ -2145,6 +2155,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -slowboot: Force slow boot for provided filename.\n");
 	std::fprintf(stderr, "  -state <index>: Loads specified save state by index.\n");
 	std::fprintf(stderr, "  -statefile <filename>: Loads state from the specified filename.\n");
+	std::fprintf(stderr, "  -input-recording <filename>: Replays a power-on input recording and captures L3+R3 markers.\n");
 	std::fprintf(stderr, "  -fullscreen: Enters fullscreen mode immediately after starting.\n");
 	std::fprintf(stderr, "  -nofullscreen: Prevents fullscreen mode from triggering if enabled.\n");
 	std::fprintf(stderr, "  -bigpicture: Forces PCSX2 to use the Big Picture mode (useful for controller-only and couch play).\n");
@@ -2252,6 +2263,11 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 			else if (CHECK_ARG_PARAM(QStringLiteral("-statefile")))
 			{
 				AutoBoot(autoboot)->save_state = (++it)->toStdString();
+				continue;
+			}
+			else if (CHECK_ARG_PARAM(QStringLiteral("-input-recording")))
+			{
+				AutoBoot(autoboot)->input_recording = (++it)->toStdString();
 				continue;
 			}
 			else if (CHECK_ARG_PARAM(QStringLiteral("-elf")))
@@ -2367,7 +2383,7 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 		autoboot.reset();
 	}
 
-	if(autoboot && autoboot->start_turbo.value_or(false) && autoboot->start_unlimited.value_or(false))
+	if (autoboot && autoboot->start_turbo.value_or(false) && autoboot->start_unlimited.value_or(false))
 	{
 		Console.Warning("Both turbo and unlimited frame limit modes requested. Using unlimited.");
 		autoboot->start_turbo.reset();
