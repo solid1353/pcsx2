@@ -229,7 +229,8 @@ void EmuThread::startVM(std::shared_ptr<VMBootParameters> boot_params)
 		});
 	};
 
-	const std::string input_recording = boot_params->input_recording;
+	const std::string input_recording = boot_params->input_recording.empty() ? std::string() :
+	                                                                           Path::Combine(EmuFolders::InputRecordings, boot_params->input_recording);
 	auto done_callback = [input_recording](VMBootResult result, const Error& error) {
 		if (result != VMBootResult::StartupSuccess)
 		{
@@ -2150,7 +2151,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -slowboot: Force slow boot for provided filename.\n");
 	std::fprintf(stderr, "  -state <index>: Loads specified save state by index.\n");
 	std::fprintf(stderr, "  -statefile <filename>: Loads state from the specified filename.\n");
-	std::fprintf(stderr, "  -input-recording <filename>: Replays a power-on input recording and captures L3+R3 markers.\n");
+	std::fprintf(stderr, "  -input-recording <filename>: Replays a power-on recording from the InputRecordings folder and captures L3+R3 markers.\n");
 	std::fprintf(stderr, "  -fullscreen: Enters fullscreen mode immediately after starting.\n");
 	std::fprintf(stderr, "  -nofullscreen: Prevents fullscreen mode from triggering if enabled.\n");
 	std::fprintf(stderr, "  -bigpicture: Forces PCSX2 to use the Big Picture mode (useful for controller-only and couch play).\n");
@@ -2262,7 +2263,14 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 			}
 			else if (CHECK_ARG_PARAM(QStringLiteral("-input-recording")))
 			{
-				AutoBoot(autoboot)->input_recording = (++it)->toStdString();
+				const std::string filename = (++it)->toStdString();
+				if (filename.empty() || !Path::IsValidFileName(filename))
+				{
+					QMessageBox::critical(nullptr, QStringLiteral("Error"),
+						QStringLiteral("Input recording must be a filename from the InputRecordings folder configured in PCSX2.ini."));
+					return false;
+				}
+				AutoBoot(autoboot)->input_recording = filename;
 				continue;
 			}
 			else if (CHECK_ARG_PARAM(QStringLiteral("-elf")))
