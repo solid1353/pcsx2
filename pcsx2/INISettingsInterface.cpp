@@ -61,10 +61,28 @@ static std::FILE* GetTemporaryFile(std::string* temporary_filename, const std::s
 #endif
 }
 
-INISettingsInterface::INISettingsInterface(std::string filename)
+INISettingsInterface::INISettingsInterface(std::string filename, std::string section_prefix)
 	: m_filename(std::move(filename))
+	, m_section_prefix(std::move(section_prefix))
 	, m_ini(true, true)
 {
+}
+
+std::string INISettingsInterface::GetSectionName(const char* section) const
+{
+	return m_section_prefix.empty() ? std::string(section) : m_section_prefix + section;
+}
+
+const char* INISettingsInterface::GetValue(const char* section, const char* key) const
+{
+	if (!m_section_prefix.empty())
+	{
+		const std::string override_section = GetSectionName(section);
+		if (const char* value = m_ini.GetValue(override_section.c_str(), key))
+			return value;
+	}
+
+	return m_ini.GetValue(section, key);
 }
 
 INISettingsInterface::~INISettingsInterface()
@@ -131,17 +149,42 @@ bool INISettingsInterface::Save(Error* error)
 
 void INISettingsInterface::Clear()
 {
-	m_ini.Reset();
+	if (m_section_prefix.empty())
+	{
+		m_ini.Reset();
+	}
+	else
+	{
+		std::list<CSimpleIniA::Entry> entries;
+		m_ini.GetAllSections(entries);
+		for (const CSimpleIniA::Entry& entry : entries)
+		{
+			if (std::string_view(entry.pItem).starts_with(m_section_prefix))
+				m_ini.Delete(entry.pItem, nullptr);
+		}
+	}
+	m_dirty = true;
 }
 
 bool INISettingsInterface::IsEmpty()
 {
-	return (m_ini.GetKeyCount() == 0);
+	if (m_section_prefix.empty())
+		return (m_ini.GetKeyCount() == 0);
+
+	std::list<CSimpleIniA::Entry> entries;
+	m_ini.GetAllSections(entries);
+	for (const CSimpleIniA::Entry& entry : entries)
+	{
+		const std::string_view section(entry.pItem);
+		if ((section.starts_with(m_section_prefix) || !section.starts_with("CRC.")) && m_ini.GetSectionSize(entry.pItem) > 0)
+			return false;
+	}
+	return true;
 }
 
 bool INISettingsInterface::GetIntValue(const char* section, const char* key, int* value) const
 {
-	const char* str_value = m_ini.GetValue(section, key);
+	const char* str_value = GetValue(section, key);
 	if (!str_value)
 		return false;
 
@@ -155,7 +198,7 @@ bool INISettingsInterface::GetIntValue(const char* section, const char* key, int
 
 bool INISettingsInterface::GetUIntValue(const char* section, const char* key, uint* value) const
 {
-	const char* str_value = m_ini.GetValue(section, key);
+	const char* str_value = GetValue(section, key);
 	if (!str_value)
 		return false;
 
@@ -169,7 +212,7 @@ bool INISettingsInterface::GetUIntValue(const char* section, const char* key, ui
 
 bool INISettingsInterface::GetFloatValue(const char* section, const char* key, float* value) const
 {
-	const char* str_value = m_ini.GetValue(section, key);
+	const char* str_value = GetValue(section, key);
 	if (!str_value)
 		return false;
 
@@ -183,7 +226,7 @@ bool INISettingsInterface::GetFloatValue(const char* section, const char* key, f
 
 bool INISettingsInterface::GetDoubleValue(const char* section, const char* key, double* value) const
 {
-	const char* str_value = m_ini.GetValue(section, key);
+	const char* str_value = GetValue(section, key);
 	if (!str_value)
 		return false;
 
@@ -197,7 +240,7 @@ bool INISettingsInterface::GetDoubleValue(const char* section, const char* key, 
 
 bool INISettingsInterface::GetBoolValue(const char* section, const char* key, bool* value) const
 {
-	const char* str_value = m_ini.GetValue(section, key);
+	const char* str_value = GetValue(section, key);
 	if (!str_value)
 		return false;
 
@@ -211,7 +254,7 @@ bool INISettingsInterface::GetBoolValue(const char* section, const char* key, bo
 
 bool INISettingsInterface::GetStringValue(const char* section, const char* key, std::string* value) const
 {
-	const char* str_value = m_ini.GetValue(section, key);
+	const char* str_value = GetValue(section, key);
 	if (!str_value)
 		return false;
 
@@ -221,7 +264,7 @@ bool INISettingsInterface::GetStringValue(const char* section, const char* key, 
 
 bool INISettingsInterface::GetStringValue(const char* section, const char* key, SmallStringBase* value) const
 {
-	const char* str_value = m_ini.GetValue(section, key);
+	const char* str_value = GetValue(section, key);
 	if (!str_value)
 		return false;
 
@@ -232,64 +275,73 @@ bool INISettingsInterface::GetStringValue(const char* section, const char* key, 
 void INISettingsInterface::SetIntValue(const char* section, const char* key, int value)
 {
 	m_dirty = true;
-	m_ini.SetValue(section, key, StringUtil::ToChars(value).c_str(), nullptr, true);
+	const std::string write_section = GetSectionName(section);
+	m_ini.SetValue(write_section.c_str(), key, StringUtil::ToChars(value).c_str(), nullptr, true);
 }
 
 void INISettingsInterface::SetUIntValue(const char* section, const char* key, uint value)
 {
 	m_dirty = true;
-	m_ini.SetValue(section, key, StringUtil::ToChars(value).c_str(), nullptr, true);
+	const std::string write_section = GetSectionName(section);
+	m_ini.SetValue(write_section.c_str(), key, StringUtil::ToChars(value).c_str(), nullptr, true);
 }
 
 void INISettingsInterface::SetFloatValue(const char* section, const char* key, float value)
 {
 	m_dirty = true;
-	m_ini.SetValue(section, key, StringUtil::ToChars(value).c_str(), nullptr, true);
+	const std::string write_section = GetSectionName(section);
+	m_ini.SetValue(write_section.c_str(), key, StringUtil::ToChars(value).c_str(), nullptr, true);
 }
 
 void INISettingsInterface::SetDoubleValue(const char* section, const char* key, double value)
 {
 	m_dirty = true;
-	m_ini.SetValue(section, key, StringUtil::ToChars(value).c_str(), nullptr, true);
+	const std::string write_section = GetSectionName(section);
+	m_ini.SetValue(write_section.c_str(), key, StringUtil::ToChars(value).c_str(), nullptr, true);
 }
 
 void INISettingsInterface::SetBoolValue(const char* section, const char* key, bool value)
 {
 	m_dirty = true;
-	m_ini.SetBoolValue(section, key, value, nullptr, true);
+	const std::string write_section = GetSectionName(section);
+	m_ini.SetBoolValue(write_section.c_str(), key, value, nullptr, true);
 }
 
 void INISettingsInterface::SetStringValue(const char* section, const char* key, const char* value)
 {
 	m_dirty = true;
-	m_ini.SetValue(section, key, value, nullptr, true);
+	const std::string write_section = GetSectionName(section);
+	m_ini.SetValue(write_section.c_str(), key, value, nullptr, true);
 }
 
 bool INISettingsInterface::ContainsValue(const char* section, const char* key) const
 {
-	return (m_ini.GetValue(section, key, nullptr) != nullptr);
+	return (GetValue(section, key) != nullptr);
 }
 
 void INISettingsInterface::DeleteValue(const char* section, const char* key)
 {
 	m_dirty = true;
-	m_ini.Delete(section, key);
+	const std::string write_section = GetSectionName(section);
+	m_ini.Delete(write_section.c_str(), key);
 }
 
 void INISettingsInterface::ClearSection(const char* section)
 {
 	m_dirty = true;
-	m_ini.Delete(section, nullptr);
-	m_ini.SetValue(section, nullptr, nullptr);
+	const std::string write_section = GetSectionName(section);
+	m_ini.Delete(write_section.c_str(), nullptr);
+	m_ini.SetValue(write_section.c_str(), nullptr, nullptr);
 }
 
 void INISettingsInterface::RemoveSection(const char* section)
 {
-	if (!m_ini.GetSection(section))
+	const std::string write_section = GetSectionName(section);
+	if (!m_ini.GetSection(write_section.c_str()))
 		return;
 
 	m_dirty = true;
-	m_ini.Delete(section, nullptr);
+	m_ini.Delete(write_section.c_str(), nullptr);
 }
 
 void INISettingsInterface::RemoveEmptySections()
@@ -308,8 +360,22 @@ void INISettingsInterface::RemoveEmptySections()
 
 std::vector<std::string> INISettingsInterface::GetStringList(const char* section, const char* key) const
 {
+	if (!m_section_prefix.empty())
+	{
+		const std::string override_section = GetSectionName(section);
+		if (m_ini.GetValue(override_section.c_str(), key))
+			return GetStringListForSection(override_section.c_str(), key);
+	}
+
+	return GetStringListForSection(section, key);
+}
+
+std::vector<std::string> INISettingsInterface::GetStringListForSection(const char* section, const char* key) const
+{
 	std::list<CSimpleIniA::Entry> entries;
 	if (!m_ini.GetAllValues(section, key, entries))
+		return {};
+	if (!m_section_prefix.empty() && entries.size() == 1 && entries.front().pItem[0] == '\0')
 		return {};
 
 	std::vector<std::string> ret;
@@ -322,34 +388,59 @@ std::vector<std::string> INISettingsInterface::GetStringList(const char* section
 void INISettingsInterface::SetStringList(const char* section, const char* key, const std::vector<std::string>& items)
 {
 	m_dirty = true;
-	m_ini.Delete(section, key);
+	const std::string write_section = GetSectionName(section);
+	m_ini.Delete(write_section.c_str(), key);
 
-	for (const std::string& sv : items)
-		m_ini.SetValue(section, key, sv.c_str(), nullptr, false);
+	if (items.empty() && !m_section_prefix.empty())
+		m_ini.SetValue(write_section.c_str(), key, "", nullptr, false);
+	else
+	{
+		for (const std::string& sv : items)
+			m_ini.SetValue(write_section.c_str(), key, sv.c_str(), nullptr, false);
+	}
 }
 
 bool INISettingsInterface::RemoveFromStringList(const char* section, const char* key, const char* item)
 {
-	m_dirty = true;
-	return m_ini.DeleteValue(section, key, item, true);
+	std::vector<std::string> items = GetStringList(section, key);
+	const auto it = std::find(items.begin(), items.end(), item);
+	if (it == items.end())
+		return false;
+	items.erase(it);
+	SetStringList(section, key, items);
+	return true;
 }
 
 bool INISettingsInterface::AddToStringList(const char* section, const char* key, const char* item)
 {
-	std::list<CSimpleIniA::Entry> entries;
-	if (m_ini.GetAllValues(section, key, entries) &&
-		std::find_if(entries.begin(), entries.end(),
-			[item](const CSimpleIniA::Entry& e) { return (std::strcmp(e.pItem, item) == 0); }) != entries.end())
-	{
+	std::vector<std::string> items = GetStringList(section, key);
+	if (std::find(items.begin(), items.end(), item) != items.end())
 		return false;
-	}
-
-	m_dirty = true;
-	m_ini.SetValue(section, key, item, nullptr, false);
+	items.emplace_back(item);
+	SetStringList(section, key, items);
 	return true;
 }
 
 std::vector<std::pair<std::string, std::string>> INISettingsInterface::GetKeyValueList(const char* section) const
+{
+	std::vector<std::pair<std::string, std::string>> output = GetKeyValueListForSection(section);
+	if (m_section_prefix.empty())
+		return output;
+
+	const std::string override_section = GetSectionName(section);
+	std::vector<std::pair<std::string, std::string>> overrides = GetKeyValueListForSection(override_section.c_str());
+	for (const auto& [key, value] : overrides)
+	{
+		output.erase(std::remove_if(output.begin(), output.end(), [&key](const auto& entry) {
+			return StringUtil::compareNoCase(entry.first, key);
+		}),
+			output.end());
+	}
+	output.insert(output.end(), std::make_move_iterator(overrides.begin()), std::make_move_iterator(overrides.end()));
+	return output;
+}
+
+std::vector<std::pair<std::string, std::string>> INISettingsInterface::GetKeyValueListForSection(const char* section) const
 {
 	using Entry = CSimpleIniA::Entry;
 	using KVEntry = std::pair<const char*, Entry>;
@@ -380,7 +471,9 @@ std::vector<std::pair<std::string, std::string>> INISettingsInterface::GetKeyVal
 
 void INISettingsInterface::SetKeyValueList(const char* section, const std::vector<std::pair<std::string, std::string>>& items)
 {
-	m_ini.Delete(section, nullptr);
+	m_dirty = true;
+	const std::string write_section = GetSectionName(section);
+	m_ini.Delete(write_section.c_str(), nullptr);
 	for (const std::pair<std::string, std::string>& item : items)
-		m_ini.SetValue(section, item.first.c_str(), item.second.c_str(), nullptr, false);
+		m_ini.SetValue(write_section.c_str(), item.first.c_str(), item.second.c_str(), nullptr, false);
 }

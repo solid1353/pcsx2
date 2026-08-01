@@ -661,12 +661,15 @@ void SettingsWindow::saveAndReloadGameSettings()
 
 void SettingsWindow::openGamePropertiesDialog(const GameList::Entry* game, const std::string_view title, std::string serial, u32 disc_crc, bool is_elf, const char* category)
 {
-	std::string filename = VMManager::GetGameSettingsPath(!is_elf ? serial : std::string_view(), disc_crc);
+	const std::string_view settings_serial = !is_elf ? std::string_view(serial) : std::string_view();
+	std::string filename = VMManager::GetGameSettingsPath(settings_serial, disc_crc);
+	std::string section_prefix = VMManager::GetGameSettingsSectionPrefix(settings_serial, disc_crc);
 
 	// check for an existing dialog with this filename
 	for (SettingsWindow* dialog : s_open_game_properties_dialogs)
 	{
-		if (dialog->isPerGameSettings() && static_cast<INISettingsInterface*>(dialog->m_sif.get())->GetFileName() == filename)
+		if (dialog->isPerGameSettings() && static_cast<INISettingsInterface*>(dialog->m_sif.get())->GetFileName() == filename &&
+			static_cast<INISettingsInterface*>(dialog->m_sif.get())->GetSectionPrefix() == section_prefix)
 		{
 			if (category)
 				dialog->setCategory(category);
@@ -678,7 +681,8 @@ void SettingsWindow::openGamePropertiesDialog(const GameList::Entry* game, const
 		}
 	}
 
-	std::unique_ptr<INISettingsInterface> sif = std::make_unique<INISettingsInterface>(filename);
+	std::unique_ptr<INISettingsInterface> sif =
+		std::make_unique<INISettingsInterface>(filename, std::move(section_prefix));
 	if (FileSystem::FileExists(sif->GetFileName().c_str()))
 		sif->Load();
 

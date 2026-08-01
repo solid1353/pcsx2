@@ -818,13 +818,64 @@ bool VMManager::ReloadGameSettings()
 	return true;
 }
 
+static std::optional<std::string> FindNestedGameSettingsFile(const std::string_view filename)
+{
+	FileSystem::FindResultsArray files;
+	FileSystem::FindFiles(EmuFolders::GameSettings.c_str(), std::string(filename).c_str(),
+		FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_HIDDEN_FILES | FILESYSTEM_FIND_RECURSIVE, &files);
+	if (files.empty())
+		return std::nullopt;
+
+	std::sort(files.begin(), files.end(), [](const FILESYSTEM_FIND_DATA& lhs, const FILESYSTEM_FIND_DATA& rhs) {
+		return lhs.FileName < rhs.FileName;
+	});
+	if (files.size() > 1)
+	{
+		Console.Warning("Multiple recursive GameSettings matches found for '%s'; using '%s'.", std::string(filename).c_str(),
+			files.front().FileName.c_str());
+	}
+	return std::move(files.front().FileName);
+}
+
 std::string VMManager::GetGameSettingsPath(const std::string_view game_serial, u32 game_crc)
 {
-	std::string sanitized_serial(Path::SanitizeFileName(game_serial));
+	const std::string sanitized_serial(Path::SanitizeFileName(game_serial));
+	if (!sanitized_serial.empty())
+	{
+		const std::string serial_filename = fmt::format("{}.ini", sanitized_serial);
+		const std::string exact_filename = fmt::format("{}_{:08X}.ini", sanitized_serial, game_crc);
+		const std::string root_serial_path = Path::Combine(EmuFolders::GameSettings, serial_filename);
+		if (FileSystem::FileExists(root_serial_path.c_str()))
+			return root_serial_path;
+		const std::string root_exact_path = Path::Combine(EmuFolders::GameSettings, exact_filename);
+		if (FileSystem::FileExists(root_exact_path.c_str()))
+			return root_exact_path;
 
-	return game_serial.empty() ?
-	           Path::Combine(EmuFolders::GameSettings, fmt::format("{:08X}.ini", game_crc)) :
-	           Path::Combine(EmuFolders::GameSettings, fmt::format("{}_{:08X}.ini", sanitized_serial, game_crc));
+		if (std::optional<std::string> path = FindNestedGameSettingsFile(serial_filename))
+			return std::move(path.value());
+		if (std::optional<std::string> path = FindNestedGameSettingsFile(exact_filename))
+			return std::move(path.value());
+
+		return root_exact_path;
+	}
+
+	const std::string crc_filename = fmt::format("{:08X}.ini", game_crc);
+	const std::string root_crc_path = Path::Combine(EmuFolders::GameSettings, crc_filename);
+	if (FileSystem::FileExists(root_crc_path.c_str()))
+		return root_crc_path;
+	if (std::optional<std::string> path = FindNestedGameSettingsFile(crc_filename))
+		return std::move(path.value());
+	return root_crc_path;
+}
+
+std::string VMManager::GetGameSettingsSectionPrefix(const std::string_view game_serial, u32 game_crc)
+{
+	if (game_serial.empty())
+		return {};
+
+	const std::string sanitized_serial(Path::SanitizeFileName(game_serial));
+	const std::string filename(Path::GetFileName(GetGameSettingsPath(game_serial, game_crc)));
+	return filename == fmt::format("{}.ini", sanitized_serial) ? fmt::format("CRC.{:08X}.", game_crc) : std::string();
 }
 
 std::string VMManager::GetDiscOverrideFromGameSettings(const std::string& elf_path)
@@ -991,7 +1042,8 @@ bool VMManager::UpdateGameSettingsLayer()
 		if (FileSystem::FileExists(filename.c_str()))
 		{
 			Console.WriteLn("Loading game settings from '%s'...", filename.c_str());
-			new_interface = std::make_unique<INISettingsInterface>(std::move(filename));
+			new_interface = std::make_unique<INISettingsInterface>(std::move(filename),
+				GetGameSettingsSectionPrefix(GetSerialForGameSettings(), s_disc_crc));
 			if (!new_interface->Load())
 			{
 				Console.Error("Failed to parse game settings ini '%s'", new_interface->GetFileName().c_str());

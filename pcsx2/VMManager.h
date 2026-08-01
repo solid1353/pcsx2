@@ -245,6 +245,9 @@ namespace VMManager
 	/// Returns the path for the game settings ini file for the specified CRC.
 	std::string GetGameSettingsPath(const std::string_view game_serial, u32 game_crc);
 
+	/// Returns the CRC-specific section prefix when a serial-wide game settings file is selected.
+	std::string GetGameSettingsSectionPrefix(const std::string_view game_serial, u32 game_crc);
+
 	/// Returns the ISO override for an ELF via gamesettings.
 	std::string GetDiscOverrideFromGameSettings(const std::string& elf_path);
 
