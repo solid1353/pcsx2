@@ -22,7 +22,9 @@ bool SaveStateBase::InputRecordingFreeze()
 #include "Utilities/InputRecordingLogger.h"
 
 #include "common/FileSystem.h"
+#include "common/Path.h"
 #include "common/StringUtil.h"
+#include "Config.h"
 #include "Counters.h"
 #include "SaveState.h"
 #include "VMManager.h"
@@ -38,6 +40,12 @@ InputRecording g_InputRecording;
 
 bool InputRecording::create(const std::string& fileName, const bool fromSaveState, const std::string& authorName)
 {
+	m_capture_markers = false;
+	m_capture_marker_down = false;
+	m_capture_index = 0;
+	m_capture_savestate_directory.clear();
+	m_capture_snapshot_directory.clear();
+
 	if (!m_file.openNew(fileName, fromSaveState))
 	{
 		return false;
@@ -80,11 +88,48 @@ bool InputRecording::create(const std::string& fileName, const bool fromSaveStat
 	return true;
 }
 
-bool InputRecording::play(const std::string& filename)
+bool InputRecording::play(const std::string& filename, bool capture_markers)
 {
+	m_capture_markers = false;
+	m_capture_marker_down = false;
+	m_capture_index = 0;
+	m_capture_savestate_directory.clear();
+	m_capture_snapshot_directory.clear();
+
 	if (!m_file.openExisting(filename))
 	{
 		return false;
+	}
+
+	if (capture_markers && m_file.fromSaveState())
+	{
+		InputRec::consoleLog("Replay marker capture requires a power-on input recording.");
+		InputRec::log(TRANSLATE_STR("InputRecording", "Replay marker capture requires a power-on input recording"),
+			Host::OSD_ERROR_DURATION);
+		m_file.close();
+		return false;
+	}
+
+	if (capture_markers)
+	{
+		std::string recording_name = Path::SanitizeFileName(Path::GetFileTitle(filename));
+		if (recording_name.empty())
+			recording_name = "input-recording";
+
+		m_capture_savestate_directory = Path::Combine(EmuFolders::Savestates, recording_name);
+		m_capture_snapshot_directory = Path::Combine(EmuFolders::Snapshots, recording_name);
+		if (!FileSystem::CreateDirectoryPath(m_capture_savestate_directory.c_str(), false) ||
+			!FileSystem::CreateDirectoryPath(m_capture_snapshot_directory.c_str(), false))
+		{
+			InputRec::consoleLog(fmt::format("Failed to create replay marker capture directories for {}", recording_name));
+			InputRec::log(TRANSLATE_STR("InputRecording", "Failed to create replay marker capture directories"),
+				Host::OSD_ERROR_DURATION);
+			m_file.close();
+			m_capture_savestate_directory.clear();
+			m_capture_snapshot_directory.clear();
+			return false;
+		}
+		m_capture_markers = true;
 	}
 
 	// Either load the savestate, or restart the game
@@ -139,6 +184,8 @@ void InputRecording::closeActiveFile()
 	if (m_file.close())
 	{
 		m_is_active = false;
+		m_capture_markers = false;
+		m_capture_marker_down = false;
 		InputRec::log(TRANSLATE_STR("InputRecording", "Input recording stopped"), Host::OSD_ERROR_DURATION);
 		MTGS::PresentCurrentFrame();
 	}
@@ -165,6 +212,8 @@ void InputRecording::stop()
 
 void InputRecording::handleControllerDataUpdate()
 {
+	bool capture_marker_down = false;
+
 	// TODO - multi-tap support with new file format, for now just controller 0 and 1
 	for (int i = 0; i < 2; i++)
 	{
@@ -182,12 +231,34 @@ void InputRecording::handleControllerDataUpdate()
 				if (modifiedFrameData)
 				{
 					frameData = modifiedFrameData.value();
+					capture_marker_down |= frameData.m_l3 && frameData.m_r3;
 				}
 			}
 		}
 		// Log the data we have gathered, useful for debugging our use-case
 		frameData.LogPadData();
 	}
+
+	if (m_capture_markers)
+	{
+		if (capture_marker_down && !m_capture_marker_down)
+			captureReplayMarker();
+		m_capture_marker_down = capture_marker_down;
+	}
+}
+
+void InputRecording::captureReplayMarker()
+{
+	const std::string capture_name = fmt::format("{:04}", ++m_capture_index);
+	const std::string savestate_path = Path::Combine(m_capture_savestate_directory, fmt::format("{}.p2s", capture_name));
+	const std::string snapshot_path = Path::Combine(m_capture_snapshot_directory, fmt::format("{}.png", capture_name));
+
+	MTGS::RunOnGSThread([snapshot_path]() { GSQueueSnapshot(snapshot_path); });
+	VMManager::SaveState(savestate_path.c_str(), true, false, [capture_name](const std::string& error) {
+		if (!error.empty())
+			InputRec::consoleLog(fmt::format("Failed to save replay marker {}: {}", capture_name, error));
+	});
+	InputRec::consoleLog(fmt::format("Captured replay marker {}", capture_name));
 }
 
 void InputRecording::saveControllerData(const PadData& data, const int port, const int slot)
