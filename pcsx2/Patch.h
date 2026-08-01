@@ -12,7 +12,8 @@
 //    - UI name: "Cheats", Controlled via Per-Game Settings -> Cheats -> Enable Cheat
 //  - At GameIndex.yaml inside a [patches] section
 //    - UI name: "Enable Compatibility Patches", controlled via Advanced section -> Enable compatability settings
-// Note: The file name has to be exactly "<Serial>_<CRC>.pnach" (For example "SLPS-25399_CD62245A.pnach")
+// Note: Files may be named "<Serial>.pnach" for all CRCs, "<Serial>_<CRC>.pnach" for one CRC,
+// or use the legacy "<CRC>.pnach" form. These files are discovered recursively.
 // Note #2: the old sytle of cheats are also supported but arent supported by the UI
 
 #include "Config.h"
@@ -155,7 +156,7 @@ namespace Patch
 
 	extern std::vector<PatchInfo> GetPatchInfo(const std::string_view serial, u32 crc, bool cheats, bool showAllCRCS, u32* num_unlabelled_patches);
 
-	/// Returns the path to a new cheat/patch pnach for the specified serial and CRC.
+	/// Returns the path to a new CRC-specific cheat/patch pnach for the specified serial and CRC.
 	extern std::string GetPnachFilename(const std::string_view serial, u32 crc, bool cheats);
 
 	/// Reloads cheats/patches. If verbose is set, the number of patches loaded will be shown in the OSD.

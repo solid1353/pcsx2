@@ -45,6 +45,7 @@ namespace Patch
 	struct PatchGroup
 	{
 		std::string name;
+		std::optional<std::vector<u32>> crcs;
 		std::optional<float> override_aspect_ratio;
 		std::optional<GSInterlaceMode> override_interlace_mode;
 		std::vector<PatchCommand> patches;
@@ -71,6 +72,7 @@ namespace Patch
 
 	namespace PatchFunc
 	{
+		static void crc(PatchGroup* group, const std::string_view cmd, const std::string_view param);
 		static void patch(PatchGroup* group, const std::string_view cmd, const std::string_view param);
 		static void gsaspectratio(PatchGroup* group, const std::string_view cmd, const std::string_view param);
 		static void gsinterlacemode(PatchGroup* group, const std::string_view cmd, const std::string_view param);
@@ -81,7 +83,7 @@ namespace Patch
 	static int PatchTableExecute(PatchGroup* group, const std::string_view lhs, const std::string_view rhs,
 		const std::span<const PatchTextTable>& Table);
 	static void LoadPatchLine(PatchGroup* group, const std::string_view line);
-	static u32 LoadPatchesFromString(std::vector<PatchGroup>* patch_list, const std::string& patch_file);
+	static u32 LoadPatchesFromString(std::vector<PatchGroup>* patch_list, const std::string& patch_file, u32 crc);
 	static bool OpenPatchesZip();
 	static std::string GetPnachTemplate(
 		const std::string_view serial, u32 crc, bool include_serial, bool add_wildcard, bool all_crcs);
@@ -95,7 +97,8 @@ namespace Patch
 	static void EnumeratePnachFiles(const std::string_view serial, u32 crc, bool cheats, bool for_ui, const F& f);
 
 	static bool PatchStringHasUnlabelledPatch(const std::string& pnach_data);
-	static void ExtractPatchInfo(std::vector<PatchInfo>* dst, const std::string& pnach_data, u32* num_unlabelled_patches);
+	static void ExtractPatchInfo(std::vector<PatchInfo>* dst, const std::string& pnach_data, std::optional<u32> crc,
+		u32* num_unlabelled_patches);
 	static void ReloadEnabledLists();
 	static u32 EnablePatches(const std::vector<PatchGroup>* patches, const std::vector<std::string>& enable_list, const std::vector<std::string>* enable_immediately_list);
 
@@ -142,6 +145,7 @@ namespace Patch
 	static std::optional<GSInterlaceMode> s_override_interlace_mode;
 
 	static const PatchTextTable s_patch_commands[] = {
+		{0, "crc", &Patch::PatchFunc::crc},
 		{0, "patch", &Patch::PatchFunc::patch},
 		{0, "gsaspectratio", &Patch::PatchFunc::gsaspectratio},
 		{0, "gsinterlacemode", &Patch::PatchFunc::gsinterlacemode},
@@ -163,6 +167,32 @@ void Patch::TrimPatchLine(std::string& buffer)
 	const std::string::size_type pos = buffer.find("//");
 	if (pos != std::string::npos)
 		buffer.erase(pos);
+}
+
+static std::optional<std::vector<u32>> ParsePatchCRCs(const std::string_view value)
+{
+	std::vector<u32> crcs;
+	for (const std::string_view part : StringUtil::SplitString(value, ',', false))
+	{
+		const std::string_view token = StringUtil::StripWhitespace(part);
+		const std::optional<u32> crc = token.length() == 8 ? StringUtil::FromChars<u32>(token, 16) : std::nullopt;
+		if (!crc.has_value())
+		{
+			Console.Error(fmt::format("Malformed patch CRC list: {}", value));
+			return std::vector<u32>();
+		}
+		crcs.push_back(crc.value());
+	}
+	return crcs;
+}
+
+static bool PatchAppliesToCRC(const std::optional<std::vector<u32>>& crcs, const std::optional<u32> crc)
+{
+	if (!crcs.has_value())
+		return true;
+	if (crcs->empty())
+		return false;
+	return !crc.has_value() || std::find(crcs->begin(), crcs->end(), crc.value()) != crcs->end();
 }
 
 bool Patch::ContainsPatchName(const std::vector<PatchGroup>& patch_list, const std::string_view patch_name)
@@ -200,12 +230,15 @@ void Patch::LoadPatchLine(PatchGroup* group, const std::string_view line)
 	PatchTableExecute(group, key, value, s_patch_commands);
 }
 
-u32 Patch::LoadPatchesFromString(std::vector<PatchGroup>* patch_list, const std::string& patch_file)
+u32 Patch::LoadPatchesFromString(std::vector<PatchGroup>* patch_list, const std::string& patch_file, u32 crc)
 {
 	const size_t before = patch_list->size();
 
 	PatchGroup current_patch_group;
-	const auto add_current_patch = [patch_list, &current_patch_group]() {
+	const auto add_current_patch = [patch_list, &current_patch_group, crc]() {
+		if (!PatchAppliesToCRC(current_patch_group.crcs, crc))
+			return;
+
 		if (!current_patch_group.patches.empty())
 		{
 			// Ungrouped/legacy patches should merge with other ungrouped patches.
@@ -216,7 +249,7 @@ u32 Patch::LoadPatchesFromString(std::vector<PatchGroup>* patch_list, const std:
 				if (ungrouped_patch != patch_list->end())
 				{
 					Console.WriteLn(Color_Gray, fmt::format(
-						"Patch: Merging {} new patch commands into ungrouped list.", current_patch_group.patches.size()));
+													"Patch: Merging {} new patch commands into ungrouped list.", current_patch_group.patches.size()));
 
 					ungrouped_patch->patches.reserve(ungrouped_patch->patches.size() + current_patch_group.patches.size());
 					for (PatchCommand& cmd : current_patch_group.patches)
@@ -243,8 +276,8 @@ u32 Patch::LoadPatchesFromString(std::vector<PatchGroup>* patch_list, const std:
 		else
 		{
 			Console.WriteLn(Color_Gray, fmt::format(
-				"Patch: Skipped loading patch '{}' since a patch with a duplicate name was already loaded.",
-				current_patch_group.name));
+											"Patch: Skipped loading patch '{}' since a patch with a duplicate name was already loaded.",
+											current_patch_group.name));
 		}
 	};
 
@@ -332,24 +365,30 @@ std::string Patch::GetPnachTemplate(const std::string_view serial, u32 crc, bool
 
 std::vector<std::string> Patch::FindPatchFilesOnDisk(const std::string_view serial, u32 crc, bool cheats, bool all_crcs)
 {
-	FileSystem::FindResultsArray files;
-	FileSystem::FindFiles(cheats ? EmuFolders::Cheats.c_str() : EmuFolders::Patches.c_str(),
-		GetPnachTemplate(serial, crc, true, true, all_crcs).c_str(),
-		FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_HIDDEN_FILES, &files);
+	const std::string& directory = cheats ? EmuFolders::Cheats : EmuFolders::Patches;
+	std::vector<std::string> patterns;
+	patterns.push_back(GetPnachTemplate(serial, crc, true, true, all_crcs));
+	patterns.push_back(GetPnachTemplate(serial, crc, false, true, false));
+	if (!serial.empty())
+		patterns.push_back(fmt::format("{}.pnach", serial));
 
 	std::vector<std::string> ret;
-	ret.reserve(files.size());
-
-	for (FILESYSTEM_FIND_DATA& fd : files)
-		ret.push_back(std::move(fd.FileName));
-
-	// and patches without serials
-	FileSystem::FindFiles(cheats ? EmuFolders::Cheats.c_str() : EmuFolders::Patches.c_str(),
-		GetPnachTemplate(serial, crc, false, true, false).c_str(), FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_HIDDEN_FILES,
-		&files);
-	ret.reserve(ret.size() + files.size());
-	for (FILESYSTEM_FIND_DATA& fd : files)
-		ret.push_back(std::move(fd.FileName));
+	for (const bool recursive : {false, true})
+	{
+		for (const std::string& pattern : patterns)
+		{
+			FileSystem::FindResultsArray files;
+			FileSystem::FindFiles(directory.c_str(), pattern.c_str(), FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_HIDDEN_FILES | (recursive ? FILESYSTEM_FIND_RECURSIVE : 0), &files);
+			std::sort(files.begin(), files.end(), [](const FILESYSTEM_FIND_DATA& lhs, const FILESYSTEM_FIND_DATA& rhs) {
+				return lhs.FileName < rhs.FileName;
+			});
+			for (FILESYSTEM_FIND_DATA& fd : files)
+			{
+				if (std::find(ret.begin(), ret.end(), fd.FileName) == ret.end())
+					ret.push_back(std::move(fd.FileName));
+			}
+		}
+	}
 
 	return ret;
 }
@@ -438,11 +477,13 @@ bool Patch::PatchStringHasUnlabelledPatch(const std::string& pnach_data)
 	return false;
 }
 
-void Patch::ExtractPatchInfo(std::vector<PatchInfo>* dst, const std::string& pnach_data, u32* num_unlabelled_patches)
+void Patch::ExtractPatchInfo(std::vector<PatchInfo>* dst, const std::string& pnach_data, std::optional<u32> crc,
+	u32* num_unlabelled_patches)
 {
 	std::istringstream ss(pnach_data);
 	std::string line;
 	PatchInfo current_patch;
+	std::optional<std::vector<u32>> current_crcs;
 
 	std::optional<patch_place_type> last_place;
 	bool unknown_place = false;
@@ -459,8 +500,8 @@ void Patch::ExtractPatchInfo(std::vector<PatchInfo>* dst, const std::string& pna
 		{
 			if (has_patch)
 			{
-				if (std::none_of(dst->begin(), dst->end(),
-						[&current_patch](const PatchInfo& pi) { return (pi.name == current_patch.name); }))
+				if (PatchAppliesToCRC(current_crcs, crc) && std::none_of(dst->begin(), dst->end(),
+																[&current_patch](const PatchInfo& pi) { return (pi.name == current_patch.name); }))
 				{
 					// Don't show patches with duplicate names, prefer the first loaded.
 					if (!ContainsPatchName(*dst, current_patch.name))
@@ -473,6 +514,7 @@ void Patch::ExtractPatchInfo(std::vector<PatchInfo>* dst, const std::string& pna
 					}
 				}
 				current_patch = {};
+				current_crcs.reset();
 			}
 
 			current_patch.name = line.substr(1, line.length() - 2);
@@ -486,7 +528,11 @@ void Patch::ExtractPatchInfo(std::vector<PatchInfo>* dst, const std::string& pna
 
 		// Just ignore other directives, who knows what rubbish people have in here.
 		// Use comment for description if it hasn't been otherwise specified.
-		if (key == "author")
+		if (key == "crc")
+		{
+			current_crcs = ParsePatchCRCs(value);
+		}
+		else if (key == "author")
 		{
 			current_patch.author = value;
 		}
@@ -536,7 +582,8 @@ void Patch::ExtractPatchInfo(std::vector<PatchInfo>* dst, const std::string& pna
 	}
 
 	// Last one.
-	if (!current_patch.name.empty() && std::none_of(dst->begin(), dst->end(), [&current_patch](const PatchInfo& pi) {
+	if (!current_patch.name.empty() && PatchAppliesToCRC(current_crcs, crc) &&
+		std::none_of(dst->begin(), dst->end(), [&current_patch](const PatchInfo& pi) {
 			return (pi.name == current_patch.name);
 		}))
 	{
@@ -570,8 +617,8 @@ std::vector<Patch::PatchInfo> Patch::GetPatchInfo(const std::string_view serial,
 		*num_unlabelled_patches = 0;
 
 	EnumeratePnachFiles(serial, crc, cheats, showAllCRCS,
-		[&ret, num_unlabelled_patches](const std::string& filename, const std::string& pnach_data) {
-			ExtractPatchInfo(&ret, pnach_data, num_unlabelled_patches);
+		[&ret, crc, showAllCRCS, num_unlabelled_patches](const std::string& filename, const std::string& pnach_data) {
+			ExtractPatchInfo(&ret, pnach_data, showAllCRCS ? std::nullopt : std::optional<u32>(crc), num_unlabelled_patches);
 		});
 
 	return ret;
@@ -730,7 +777,7 @@ void Patch::ReloadPatches(const std::string& serial, u32 crc, bool reload_files,
 			const std::string* patches = game->findPatch(crc);
 			if (patches)
 			{
-				const u32 patch_count = LoadPatchesFromString(&s_gamedb_patches, *patches);
+				const u32 patch_count = LoadPatchesFromString(&s_gamedb_patches, *patches, crc);
 				if (patch_count > 0)
 					Console.WriteLn(Color_Green, fmt::format("Found {} game patches in GameDB.", patch_count));
 			}
@@ -740,16 +787,16 @@ void Patch::ReloadPatches(const std::string& serial, u32 crc, bool reload_files,
 
 		s_game_patches.clear();
 		EnumeratePnachFiles(
-			serial, s_patches_crc, false, false, [](const std::string& filename, const std::string& pnach_data) {
-				const u32 patch_count = LoadPatchesFromString(&s_game_patches, pnach_data);
+			serial, s_patches_crc, false, false, [crc](const std::string& filename, const std::string& pnach_data) {
+				const u32 patch_count = LoadPatchesFromString(&s_game_patches, pnach_data, crc);
 				if (patch_count > 0)
 					Console.WriteLn(Color_Green, fmt::format("Found {} game patches in {}.", patch_count, filename));
 			});
 
 		s_cheat_patches.clear();
 		EnumeratePnachFiles(
-			serial, s_patches_crc, true, false, [](const std::string& filename, const std::string& pnach_data) {
-				const u32 patch_count = LoadPatchesFromString(&s_cheat_patches, pnach_data);
+			serial, s_patches_crc, true, false, [crc](const std::string& filename, const std::string& pnach_data) {
+				const u32 patch_count = LoadPatchesFromString(&s_cheat_patches, pnach_data, crc);
 				if (patch_count > 0)
 					Console.WriteLn(Color_Green, fmt::format("Found {} cheats in {}.", patch_count, filename));
 			});
@@ -884,6 +931,11 @@ void Patch::UnloadPatches()
 }
 
 // PatchFunc Functions.
+void Patch::PatchFunc::crc(PatchGroup* group, const std::string_view cmd, const std::string_view param)
+{
+	group->crcs = ParsePatchCRCs(param);
+}
+
 void Patch::PatchFunc::patch(PatchGroup* group, const std::string_view cmd, const std::string_view param)
 {
 #define PATCH_ERROR(fstring, ...) \

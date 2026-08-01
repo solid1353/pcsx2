@@ -13,10 +13,11 @@
 class INISettingsInterface final : public SettingsInterface
 {
 public:
-	INISettingsInterface(std::string filename);
+	INISettingsInterface(std::string filename, std::string section_prefix = {});
 	~INISettingsInterface() override;
 
 	const std::string& GetFileName() const { return m_filename; }
+	const std::string& GetSectionPrefix() const { return m_section_prefix; }
 	bool IsDirty() const { return m_dirty; }
 
 	bool Load();
@@ -62,7 +63,13 @@ public:
 	using SettingsInterface::GetUIntValue;
 
 private:
+	std::string GetSectionName(const char* section) const;
+	const char* GetValue(const char* section, const char* key) const;
+	std::vector<std::string> GetStringListForSection(const char* section, const char* key) const;
+	std::vector<std::pair<std::string, std::string>> GetKeyValueListForSection(const char* section) const;
+
 	std::string m_filename;
+	std::string m_section_prefix;
 	CSimpleIniA m_ini;
 	bool m_dirty = false;
 };
