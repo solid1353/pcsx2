@@ -4647,7 +4647,7 @@ void FullscreenUI::DrawAchievementsLoginWindow()
 				if (!result)
 				{
 					ShowToast(ICON_FA_TRIANGLE_EXCLAMATION, fmt::format(FSUI_FSTR("Login failed.\nError: {}\n\nPlease check your username and password, and try again."),
-											 error.GetDescription()));
+												 error.GetDescription()));
 					return;
 				}
 
