@@ -13,6 +13,47 @@
 
 #include <QtGui/QKeyEvent>
 
+#ifdef _WIN32
+#include "common/RedtapeWindows.h"
+#endif
+
+#ifdef _WIN32
+static std::optional<int> get_layout_independent_key(const QKeyEvent* ev)
+{
+	const quint32 native_key = ev->nativeVirtualKey();
+	if ((native_key >= '0' && native_key <= '9') || (native_key >= 'A' && native_key <= 'Z'))
+		return static_cast<int>(native_key);
+
+	switch (native_key)
+	{
+		case VK_OEM_1:
+			return Qt::Key_Semicolon;
+		case VK_OEM_PLUS:
+			return Qt::Key_Equal;
+		case VK_OEM_COMMA:
+			return Qt::Key_Comma;
+		case VK_OEM_MINUS:
+			return Qt::Key_Minus;
+		case VK_OEM_PERIOD:
+			return Qt::Key_Period;
+		case VK_OEM_2:
+			return Qt::Key_Slash;
+		case VK_OEM_3:
+			return Qt::Key_QuoteLeft;
+		case VK_OEM_4:
+			return Qt::Key_BracketLeft;
+		case VK_OEM_5:
+			return Qt::Key_Backslash;
+		case VK_OEM_6:
+			return Qt::Key_BracketRight;
+		case VK_OEM_7:
+			return Qt::Key_Apostrophe;
+		default:
+			return std::nullopt;
+	}
+}
+#endif
+
 u8 map_text_to_keycode(const QString& text)
 {
 	if (text == "!")
@@ -575,7 +616,16 @@ u32 QtUtils::KeyEventToCode(const QKeyEvent* ev)
 	const u8 keycode = set_keycode ? map_text_to_keycode(text) : 0;
 	int key = ev->key();
 
-	if (keycode != 0)
+	bool has_layout_independent_key = false;
+#ifdef _WIN32
+	if (const std::optional<int> native_key = get_layout_independent_key(ev); native_key.has_value())
+	{
+		key = native_key.value();
+		has_layout_independent_key = true;
+	}
+#endif
+
+	if (!has_layout_independent_key && keycode != 0)
 		key = keycode; // Override key if mapped
 
 #ifdef __APPLE__
