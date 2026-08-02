@@ -844,6 +844,9 @@ static bool SaveState_CompressScreenshot(
 	if (zip_source_commit_write(zs) != 0)
 		return false;
 
+	if (!zf)
+		return true;
+
 	const s64 file_index = zip_file_add(zf, EntryFilename_Screenshot, zs, 0);
 	if (file_index < 0)
 		return false;
@@ -853,6 +856,32 @@ static bool SaveState_CompressScreenshot(
 
 	// source is now owned by the zip file for later compression
 	zs_free.Cancel();
+	return true;
+}
+
+bool SaveState_SaveScreenshotToFile(const char* filename, Error* error)
+{
+	std::unique_ptr<SaveStateScreenshotData> screenshot = SaveState_SaveScreenshot();
+	if (!screenshot)
+	{
+		Error::SetString(error, TRANSLATE_STR("SaveState", "Failed to capture save state screenshot."));
+		return false;
+	}
+
+	std::vector<u8> encoded_screenshot;
+	if (!SaveState_CompressScreenshot(screenshot.get(), nullptr, &encoded_screenshot))
+	{
+		Error::SetString(error, TRANSLATE_STR("SaveState", "Failed to encode save state screenshot."));
+		return false;
+	}
+
+	if (!FileSystem::WriteBinaryFile(filename, encoded_screenshot.data(), encoded_screenshot.size()))
+	{
+		Error::SetStringFmt(error,
+			TRANSLATE_FS("SaveState", "Failed to save screenshot to '{}'."), filename);
+		return false;
+	}
+
 	return true;
 }
 
