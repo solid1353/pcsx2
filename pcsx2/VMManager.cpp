@@ -2185,8 +2185,15 @@ void VMManager::SaveState(
 {
 	if (MemcardBusy::IsBusy())
 	{
-		error_callback(TRANSLATE_STR("VMManager",
-			"The memory card is busy, so the state save operation has been cancelled to prevent data loss."));
+		std::string save_error = TRANSLATE_STR("VMManager",
+			"The memory card is busy, so the state save operation has been cancelled to prevent data loss.");
+		if (!screenshot_filename.empty())
+		{
+			Error screenshot_error;
+			if (!SaveState_SaveScreenshotToFile(screenshot_filename.c_str(), &screenshot_error))
+				save_error = fmt::format("{} {}", save_error, screenshot_error.GetDescription());
+		}
+		error_callback(save_error);
 		return;
 	}
 
