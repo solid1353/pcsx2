@@ -42,6 +42,7 @@ bool InputRecording::create(const std::string& fileName, const bool fromSaveStat
 {
 	m_capture_markers = false;
 	m_capture_marker_down = false;
+	m_exit_on_replay_completion = false;
 	m_capture_index = 0;
 	m_capture_savestate_directory.clear();
 	m_capture_snapshot_directory.clear();
@@ -92,6 +93,7 @@ bool InputRecording::play(const std::string& filename, bool capture_markers, con
 {
 	m_capture_markers = false;
 	m_capture_marker_down = false;
+	m_exit_on_replay_completion = false;
 	m_capture_index = 0;
 	m_capture_savestate_directory.clear();
 	m_capture_snapshot_directory.clear();
@@ -138,6 +140,7 @@ bool InputRecording::play(const std::string& filename, bool capture_markers, con
 			return false;
 		}
 		m_capture_markers = true;
+		m_exit_on_replay_completion = !capture_directory.empty();
 	}
 
 	// Either load the savestate, or restart the game
@@ -261,11 +264,9 @@ void InputRecording::captureReplayMarker()
 	const std::string savestate_path = Path::Combine(m_capture_savestate_directory, fmt::format("{}.p2s", capture_name));
 	const std::string snapshot_path = Path::Combine(m_capture_snapshot_directory, fmt::format("{}.png", capture_name));
 
-	MTGS::RunOnGSThread([snapshot_path]() { GSQueueSnapshot(snapshot_path); });
 	VMManager::SaveState(savestate_path.c_str(), true, false, [capture_name](const std::string& error) {
 		if (!error.empty())
-			InputRec::consoleLog(fmt::format("Failed to save replay marker {}: {}", capture_name, error));
-	});
+			InputRec::consoleLog(fmt::format("Failed to save replay marker {}: {}", capture_name, error)); }, snapshot_path);
 	InputRec::consoleLog(fmt::format("Captured replay marker {}", capture_name));
 }
 
@@ -320,10 +321,20 @@ void InputRecording::incFrameCounter()
 	if (m_controls.isReplaying())
 	{
 		InformGSThread();
-		// If we've reached the end of the recording while replaying, pause
+		// If we've reached the end of the recording while replaying, pause or close after the final frame completes.
 		if (m_frame_counter == m_file.getTotalFrames())
 		{
-			VMManager::SetPaused(true);
+			if (m_exit_on_replay_completion)
+			{
+				m_recordingQueue.push([this]() {
+					closeActiveFile();
+					Host::RequestVMShutdown(false, false, false);
+				});
+			}
+			else
+			{
+				VMManager::SetPaused(true);
+			}
 			// Can also stop watching for re-records, they've watched to the end of the recording
 			m_watching_for_rerecords = false;
 		}
@@ -361,7 +372,7 @@ bool InputRecording::isActive() const
 void InputRecording::handleExceededFrameCounter()
 {
 	// if we go past the end, switch to recording mode so nothing is lost
-	if (m_frame_counter >= m_file.getTotalFrames() && m_controls.isReplaying())
+	if (!m_exit_on_replay_completion && m_frame_counter >= m_file.getTotalFrames() && m_controls.isReplaying())
 	{
 		m_controls.setRecordMode(false);
 	}

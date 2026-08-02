@@ -175,7 +175,7 @@ namespace VMManager
 
 	/// Saves state to the specified filename.
 	void SaveState(const char* filename, bool zip_on_thread, bool backup_old_state,
-		std::function<void(const std::string&)> error_callback);
+		std::function<void(const std::string&)> error_callback, std::string screenshot_filename = {});
 
 	/// Saves state to the specified slot.
 	void SaveStateToSlot(s32 slot, bool zip_on_thread, std::function<void(const std::string&)> error_callback);

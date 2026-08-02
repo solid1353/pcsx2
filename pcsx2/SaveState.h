@@ -56,7 +56,7 @@ extern std::unique_ptr<ArchiveEntryList> SaveState_DownloadState(Error* error);
 extern std::unique_ptr<SaveStateScreenshotData> SaveState_SaveScreenshot();
 extern bool SaveState_ZipToDisk(
 	std::unique_ptr<ArchiveEntryList> srclist, std::unique_ptr<SaveStateScreenshotData> screenshot,
-	const char* filename, Error* error);
+	const char* filename, const char* screenshot_filename, Error* error);
 extern bool SaveState_ReadScreenshot(const std::string& filename, u32* out_width, u32* out_height, std::vector<u32>* out_pixels);
 extern bool SaveState_UnzipFromDisk(const std::string& filename, Error* error);
 
@@ -74,9 +74,9 @@ public:
 protected:
 	VmStateBuffer& m_memory;
 
-	u32 m_version = 0;		// version of the savestate being loaded.
+	u32 m_version = 0; // version of the savestate being loaded.
 
-	int m_idx = 0;			// current read/write index of the allocation
+	int m_idx = 0; // current read/write index of the allocation
 
 	bool m_error = false; // error occurred while reading/writing
 
@@ -99,21 +99,21 @@ public:
 
 	// Loads or saves an arbitrary data type.  Usable on atomic types, structs, and arrays.
 	// For dynamically allocated pointers use FreezeMem instead.
-	template<typename T>
-	void Freeze( T& data )
+	template <typename T>
+	void Freeze(T& data)
 	{
-		FreezeMem( const_cast<void*>((void*)&data), sizeof( T ) );
+		FreezeMem(const_cast<void*>((void*)&data), sizeof(T));
 	}
 
 	// FreezeLegacy can be used to load structures short of their full size, which is
 	// useful for loading structures that have had new stuff added since a previous version.
-	template<typename T>
-	void FreezeLegacy( T& data, int sizeOfNewStuff )
+	template <typename T>
+	void FreezeLegacy(T& data, int sizeOfNewStuff)
 	{
-		FreezeMem( &data, sizeof( T ) - sizeOfNewStuff );
+		FreezeMem(&data, sizeof(T) - sizeOfNewStuff);
 	}
 
-	void PrepBlock( int size );
+	void PrepBlock(int size);
 
 	template <typename T>
 	void FreezeDeque(std::deque<T>& q)
@@ -167,7 +167,7 @@ public:
 		return &m_memory[m_idx];
 	}
 
-	void CommitBlock( int size )
+	void CommitBlock(int size)
 	{
 		m_idx += size;
 	}
@@ -176,16 +176,16 @@ public:
 	// Identifiers can be used to determine where in a savestate that data has become
 	// skewed (if the value does not match then the error occurs somewhere prior to that
 	// position).
-	bool FreezeTag( const char* src );
+	bool FreezeTag(const char* src);
 
 	// Returns true if this object is a StateLoading type object.
 	bool IsLoading() const { return !IsSaving(); }
 
 	// Loads or saves a memory block.
-	virtual void FreezeMem( void* data, int size )=0;
+	virtual void FreezeMem(void* data, int size) = 0;
 
 	// Returns true if this object is a StateSaving type object.
-	virtual bool IsSaving() const=0;
+	virtual bool IsSaving() const = 0;
 
 public:
 	// note: gsFreeze() needs to be public because of the GSState recorder.
@@ -230,9 +230,9 @@ protected:
 class ArchiveEntry final
 {
 protected:
-	std::string	m_filename;
-	uptr		m_dataidx;
-	size_t		m_datasize;
+	std::string m_filename;
+	uptr m_dataidx;
+	size_t m_datasize;
 
 public:
 	ArchiveEntry(std::string filename)
