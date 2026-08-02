@@ -118,13 +118,14 @@ namespace VMManager
 
 	static std::string GetCurrentSaveStateFileName(s32 slot, bool backup = false);
 	static bool DoLoadState(const char* filename, Error* error = nullptr);
-	static void DoSaveState(const char* filename, s32 slot_for_message, bool zip_on_thread, bool backup_old_state, std::function<void(const std::string&)> error_callback);
+	static void DoSaveState(const char* filename, s32 slot_for_message, bool zip_on_thread, bool backup_old_state,
+		std::string screenshot_filename, std::function<void(const std::string&)> error_callback);
 	static void ZipSaveState(std::unique_ptr<ArchiveEntryList> elist,
 		std::unique_ptr<SaveStateScreenshotData> screenshot, const char* filename,
-		s32 slot_for_message, std::function<void(const std::string&)> error_callback);
+		const char* screenshot_filename, s32 slot_for_message, std::function<void(const std::string&)> error_callback);
 	static void ZipSaveStateOnThread(std::unique_ptr<ArchiveEntryList> elist,
 		std::unique_ptr<SaveStateScreenshotData> screenshot, std::string filename,
-		s32 slot_for_message, std::function<void(const std::string&)> error_callback);
+		std::string screenshot_filename, s32 slot_for_message, std::function<void(const std::string&)> error_callback);
 
 	static void LoadSettings();
 	static void LoadCoreSettings(SettingsInterface& si);
@@ -499,7 +500,7 @@ void VMManager::UpdateLoggingSettings(SettingsInterface& si)
 	if (system_console_enabled != Log::IsConsoleOutputEnabled())
 		Log::SetConsoleOutputLevel(system_console_enabled ? level : LOGLEVEL_NONE);
 
-		// Debug console only exists on Windows.
+	// Debug console only exists on Windows.
 #ifdef _WIN32
 	const bool debug_console_enabled = IsDebuggerPresent() && si.GetBoolValue("Logging", "EnableDebugConsole", false);
 	Log::SetDebugOutputLevel(debug_console_enabled ? level : LOGLEVEL_NONE);
@@ -1727,7 +1728,7 @@ void VMManager::Shutdown(bool save_resume_state)
 		std::string resume_file_name(GetCurrentSaveStateFileName(-1));
 		if (!resume_file_name.empty())
 		{
-			DoSaveState(resume_file_name.c_str(), -1, true, false, [](const std::string& error) {
+			DoSaveState(resume_file_name.c_str(), -1, true, false, {}, [](const std::string& error) {
 				Host::AddIconOSDMessage("SaveResumeState", ICON_FA_TRIANGLE_EXCLAMATION,
 					fmt::format(TRANSLATE_FS("VMManager", "Failed to save resume state: {}"), error), Host::OSD_QUICK_DURATION);
 			});
@@ -1978,7 +1979,8 @@ bool VMManager::DoLoadState(const char* filename, Error* error)
 	return true;
 }
 
-void VMManager::DoSaveState(const char* filename, s32 slot_for_message, bool zip_on_thread, bool backup_old_state, std::function<void(const std::string&)> error_callback)
+void VMManager::DoSaveState(const char* filename, s32 slot_for_message, bool zip_on_thread, bool backup_old_state,
+	std::string screenshot_filename, std::function<void(const std::string&)> error_callback)
 {
 	if (GSDumpReplayer::IsReplayingDump())
 	{
@@ -2014,12 +2016,12 @@ void VMManager::DoSaveState(const char* filename, s32 slot_for_message, bool zip
 		// lock order here is important; the thread could exit before we resume here.
 		std::unique_lock lock(s_save_state_threads_mutex);
 		s_save_state_threads.emplace_back(&VMManager::ZipSaveStateOnThread, std::move(elist), std::move(screenshot),
-			std::string(filename), slot_for_message, std::move(error_callback));
+			std::string(filename), std::move(screenshot_filename), slot_for_message, std::move(error_callback));
 	}
 	else
 	{
-		ZipSaveState(
-			std::move(elist), std::move(screenshot), filename, slot_for_message, std::move(error_callback));
+		ZipSaveState(std::move(elist), std::move(screenshot), filename,
+			screenshot_filename.empty() ? nullptr : screenshot_filename.c_str(), slot_for_message, std::move(error_callback));
 	}
 
 	Host::OnSaveStateSaved(filename);
@@ -2029,12 +2031,12 @@ void VMManager::DoSaveState(const char* filename, s32 slot_for_message, bool zip
 
 void VMManager::ZipSaveState(std::unique_ptr<ArchiveEntryList> elist,
 	std::unique_ptr<SaveStateScreenshotData> screenshot, const char* filename,
-	s32 slot_for_message, std::function<void(const std::string&)> error_callback)
+	const char* screenshot_filename, s32 slot_for_message, std::function<void(const std::string&)> error_callback)
 {
 	Common::Timer timer;
 
 	Error error;
-	if (!SaveState_ZipToDisk(std::move(elist), std::move(screenshot), filename, &error))
+	if (!SaveState_ZipToDisk(std::move(elist), std::move(screenshot), filename, screenshot_filename, &error))
 	{
 		error_callback(error.GetDescription());
 		return;
@@ -2052,10 +2054,10 @@ void VMManager::ZipSaveState(std::unique_ptr<ArchiveEntryList> elist,
 
 void VMManager::ZipSaveStateOnThread(std::unique_ptr<ArchiveEntryList> elist,
 	std::unique_ptr<SaveStateScreenshotData> screenshot, std::string filename,
-	s32 slot_for_message, std::function<void(const std::string&)> error_callback)
+	std::string screenshot_filename, s32 slot_for_message, std::function<void(const std::string&)> error_callback)
 {
-	ZipSaveState(
-		std::move(elist), std::move(screenshot), filename.c_str(), slot_for_message, std::move(error_callback));
+	ZipSaveState(std::move(elist), std::move(screenshot), filename.c_str(),
+		screenshot_filename.empty() ? nullptr : screenshot_filename.c_str(), slot_for_message, std::move(error_callback));
 
 	// remove ourselves from the thread list. if we're joining, we might not be in there.
 	const auto this_id = std::this_thread::get_id();
@@ -2178,7 +2180,8 @@ bool VMManager::LoadStateFromSlot(s32 slot, bool backup, Error* error)
 }
 
 void VMManager::SaveState(
-	const char* filename, bool zip_on_thread, bool backup_old_state, std::function<void(const std::string&)> error_callback)
+	const char* filename, bool zip_on_thread, bool backup_old_state,
+	std::function<void(const std::string&)> error_callback, std::string screenshot_filename)
 {
 	if (MemcardBusy::IsBusy())
 	{
@@ -2187,7 +2190,8 @@ void VMManager::SaveState(
 		return;
 	}
 
-	DoSaveState(filename, -1, zip_on_thread, backup_old_state, std::move(error_callback));
+	DoSaveState(filename, -1, zip_on_thread, backup_old_state,
+		std::move(screenshot_filename), std::move(error_callback));
 }
 
 void VMManager::SaveStateToSlot(s32 slot, bool zip_on_thread, std::function<void(const std::string&)> error_callback)
@@ -2216,7 +2220,7 @@ void VMManager::SaveStateToSlot(s32 slot, bool zip_on_thread, std::function<void
 	};
 
 	return DoSaveState(
-		filename.c_str(), slot, zip_on_thread, EmuConfig.BackupSavestate, std::move(callback));
+		filename.c_str(), slot, zip_on_thread, EmuConfig.BackupSavestate, {}, std::move(callback));
 }
 
 LimiterModeType VMManager::GetLimiterMode()
@@ -3898,7 +3902,7 @@ void VMManager::PollDiscordPresence()
 
 bool VMManager::WriteBytesToEESIORXFIFO(const std::span<const u8> data)
 {
-	if(ee_sio_rx_fifo.size() + data.size() > 1024)
+	if (ee_sio_rx_fifo.size() + data.size() > 1024)
 	{
 		Console.Warning("EE RX FIFO is full, not appending more bytes.");
 		return false;

@@ -55,6 +55,7 @@ private:
 	bool m_watching_for_rerecords = false;
 	bool m_capture_markers = false;
 	bool m_capture_marker_down = false;
+	bool m_exit_on_replay_completion = false;
 	u32 m_capture_index = 0;
 	std::string m_capture_savestate_directory;
 	std::string m_capture_snapshot_directory;
