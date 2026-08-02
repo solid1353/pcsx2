@@ -2279,10 +2279,11 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 			else if (CHECK_ARG_PARAM(QStringLiteral("-input-recording")))
 			{
 				const std::string filename = (++it)->toStdString();
-				if (filename.empty() || !Path::IsValidFileName(filename))
+				if (filename.empty() || Path::IsAbsolute(filename) ||
+					!Path::IsValidFileName(filename, true) || filename.find("..") != std::string::npos)
 				{
 					QMessageBox::critical(nullptr, QStringLiteral("Error"),
-						QStringLiteral("Input recording must be a filename from the InputRecordings folder configured in PCSX2.ini."));
+						QStringLiteral("Input recording must be a relative path inside the InputRecordings folder configured in PCSX2.ini."));
 					return false;
 				}
 				AutoBoot(autoboot)->input_recording = filename;
@@ -2297,10 +2298,11 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 			else if (CHECK_ARG_PARAM(QStringLiteral("-input-recording-create")))
 			{
 				const std::string filename = (++it)->toStdString();
-				if (filename.empty() || !Path::IsValidFileName(filename))
+				if (filename.empty() || Path::IsAbsolute(filename) ||
+					!Path::IsValidFileName(filename, true) || filename.find("..") != std::string::npos)
 				{
 					QMessageBox::critical(nullptr, QStringLiteral("Error"),
-						QStringLiteral("Input recording must be a filename from the InputRecordings folder configured in PCSX2.ini."));
+						QStringLiteral("Input recording must be a relative path inside the InputRecordings folder configured in PCSX2.ini."));
 					return false;
 				}
 				AutoBoot(autoboot)->input_recording = filename;
