@@ -19,7 +19,7 @@ public:
 	};
 
 	bool create(const std::string& filename, const bool fromSaveState, const std::string& authorName);
-	bool play(const std::string& path, bool capture_markers = false);
+	bool play(const std::string& path, bool capture_markers = false, const std::string& capture_directory = {});
 	void stop();
 
 	static void InformGSThread();
