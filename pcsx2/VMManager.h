@@ -33,6 +33,7 @@ struct VMBootParameters
 	std::string elf_override;
 	std::string save_state;
 	std::string input_recording;
+	bool create_input_recording = false;
 	std::optional<s32> state_index;
 	std::optional<CDVD_SourceType> source_type;
 
