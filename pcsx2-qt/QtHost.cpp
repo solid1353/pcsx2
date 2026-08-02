@@ -231,19 +231,26 @@ void EmuThread::startVM(std::shared_ptr<VMBootParameters> boot_params)
 
 	const std::string input_recording = boot_params->input_recording.empty() ? std::string() :
 	                                                                           Path::Combine(EmuFolders::InputRecordings, boot_params->input_recording);
-	auto done_callback = [input_recording](VMBootResult result, const Error& error) {
+	const bool create_input_recording = boot_params->create_input_recording;
+	auto done_callback = [input_recording, create_input_recording](VMBootResult result, const Error& error) {
 		if (result != VMBootResult::StartupSuccess)
 		{
 			Host::ReportErrorAsync(TRANSLATE_STR("QtHost", "Startup Error"), error.GetDescription());
 			return;
 		}
-		if (!input_recording.empty() && !g_InputRecording.play(input_recording, true))
+		if (!input_recording.empty())
 		{
-			Host::ReportErrorAsync(TRANSLATE_STR("QtHost", "Input Recording Error"),
-				TRANSLATE_STR("QtHost", "Failed to start power-on input recording replay with marker capture."));
-			VMManager::Shutdown(false);
-			g_emu_thread->getEventLoop()->quit();
-			return;
+			const bool started = create_input_recording ? g_InputRecording.create(input_recording, false, std::string()) :
+			                                              g_InputRecording.play(input_recording, true);
+			if (!started)
+			{
+				Host::ReportErrorAsync(TRANSLATE_STR("QtHost", "Input Recording Error"),
+					create_input_recording ? TRANSLATE_STR("QtHost", "Failed to start power-on input recording.") :
+											 TRANSLATE_STR("QtHost", "Failed to start power-on input recording replay with marker capture."));
+				VMManager::Shutdown(false);
+				g_emu_thread->getEventLoop()->quit();
+				return;
+			}
 		}
 
 		if (!Host::GetBoolSettingValue("UI", "StartPaused", false))
@@ -2152,6 +2159,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -state <index>: Loads specified save state by index.\n");
 	std::fprintf(stderr, "  -statefile <filename>: Loads state from the specified filename.\n");
 	std::fprintf(stderr, "  -input-recording <filename>: Replays a power-on recording from the InputRecordings folder and captures L3+R3 markers.\n");
+	std::fprintf(stderr, "  -input-recording-create <filename>: Creates and starts a power-on recording in the InputRecordings folder.\n");
 	std::fprintf(stderr, "  -fullscreen: Enters fullscreen mode immediately after starting.\n");
 	std::fprintf(stderr, "  -nofullscreen: Prevents fullscreen mode from triggering if enabled.\n");
 	std::fprintf(stderr, "  -bigpicture: Forces PCSX2 to use the Big Picture mode (useful for controller-only and couch play).\n");
@@ -2271,6 +2279,20 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 					return false;
 				}
 				AutoBoot(autoboot)->input_recording = filename;
+				AutoBoot(autoboot)->create_input_recording = false;
+				continue;
+			}
+			else if (CHECK_ARG_PARAM(QStringLiteral("-input-recording-create")))
+			{
+				const std::string filename = (++it)->toStdString();
+				if (filename.empty() || !Path::IsValidFileName(filename))
+				{
+					QMessageBox::critical(nullptr, QStringLiteral("Error"),
+						QStringLiteral("Input recording must be a filename from the InputRecordings folder configured in PCSX2.ini."));
+					return false;
+				}
+				AutoBoot(autoboot)->input_recording = filename;
+				AutoBoot(autoboot)->create_input_recording = true;
 				continue;
 			}
 			else if (CHECK_ARG_PARAM(QStringLiteral("-elf")))
