@@ -88,7 +88,7 @@ bool InputRecording::create(const std::string& fileName, const bool fromSaveStat
 	return true;
 }
 
-bool InputRecording::play(const std::string& filename, bool capture_markers)
+bool InputRecording::play(const std::string& filename, bool capture_markers, const std::string& capture_directory)
 {
 	m_capture_markers = false;
 	m_capture_marker_down = false;
@@ -116,8 +116,16 @@ bool InputRecording::play(const std::string& filename, bool capture_markers)
 		if (recording_name.empty())
 			recording_name = "input-recording";
 
-		m_capture_savestate_directory = Path::Combine(EmuFolders::Savestates, recording_name);
-		m_capture_snapshot_directory = Path::Combine(EmuFolders::Snapshots, recording_name);
+		if (capture_directory.empty())
+		{
+			m_capture_savestate_directory = Path::Combine(EmuFolders::Savestates, recording_name);
+			m_capture_snapshot_directory = Path::Combine(EmuFolders::Snapshots, recording_name);
+		}
+		else
+		{
+			m_capture_savestate_directory = capture_directory;
+			m_capture_snapshot_directory = capture_directory;
+		}
 		if (!FileSystem::CreateDirectoryPath(m_capture_savestate_directory.c_str(), false) ||
 			!FileSystem::CreateDirectoryPath(m_capture_snapshot_directory.c_str(), false))
 		{
