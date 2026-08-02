@@ -124,7 +124,7 @@ bool InputRecording::play(const std::string& filename, bool capture_markers, con
 		else
 		{
 			m_capture_savestate_directory = capture_directory;
-			m_capture_snapshot_directory = capture_directory;
+			m_capture_snapshot_directory = Path::Combine(capture_directory, "screenshots");
 		}
 		if (!FileSystem::CreateDirectoryPath(m_capture_savestate_directory.c_str(), false) ||
 			!FileSystem::CreateDirectoryPath(m_capture_snapshot_directory.c_str(), false))
