@@ -91,6 +91,7 @@ static std::unique_ptr<INISettingsInterface> s_base_settings_interface;
 static std::unique_ptr<INISettingsInterface> s_secrets_settings_interface;
 static bool s_batch_mode = false;
 static bool s_nogui_mode = false;
+static bool s_surfaceless_mode = false;
 static bool s_start_big_picture_mode = false;
 static bool s_start_fullscreen = false;
 static bool s_test_config_and_exit = false;
@@ -118,6 +119,7 @@ void EmuThread::start()
 	pxAssertRel(!g_emu_thread, "Emu thread does not exist");
 
 	g_emu_thread = new EmuThread(QThread::currentThread());
+	g_emu_thread->m_is_surfaceless = s_surfaceless_mode;
 	g_emu_thread->setStackSize(VMManager::EMU_THREAD_STACK_SIZE);
 	g_emu_thread->QThread::start();
 	g_emu_thread->m_started_semaphore.acquire();
@@ -543,6 +545,9 @@ void EmuThread::setFullscreen(bool fullscreen, bool allow_render_to_main)
 
 void EmuThread::setSurfaceless(bool surfaceless)
 {
+	if (s_surfaceless_mode && !surfaceless)
+		return;
+
 	if (!isOnEmuThread())
 	{
 		QMetaObject::invokeMethod(this, "setSurfaceless", Qt::QueuedConnection, Q_ARG(bool, surfaceless));
@@ -2147,6 +2152,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -version: Displays version information and exits.\n");
 	std::fprintf(stderr, "  -batch: Enables batch mode (exits after shutting down).\n");
 	std::fprintf(stderr, "  -nogui: Hides main window while running (implies batch mode).\n");
+	std::fprintf(stderr, "  -surfaceless: Runs emulation without creating or activating a window (implies batch mode).\n");
 	std::fprintf(stderr, "  -portable: Force enable portable mode to store data in local PCSX2 path instead of the default configuration path. Overrides '-datapath'.\n");
 	std::fprintf(stderr, "  -datapath <path>: Specify the directory to be used for all application data.\n");
 	std::fprintf(stderr, "  -pine-port <port>: Override the PINE TCP port for this process without changing persistent settings.\n");
@@ -2224,6 +2230,13 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 			{
 				s_batch_mode = true;
 				s_nogui_mode = true;
+				continue;
+			}
+			else if (CHECK_ARG(QStringLiteral("-surfaceless")))
+			{
+				s_batch_mode = true;
+				s_nogui_mode = true;
+				s_surfaceless_mode = true;
 				continue;
 			}
 			else if (CHECK_ARG(QStringLiteral("-portable")))
@@ -2584,6 +2597,11 @@ int main(int argc, char* argv[])
 
 	// Create all window objects, the emuthread might still be starting up at this point.
 	g_main_window = new MainWindow();
+	if (s_surfaceless_mode)
+	{
+		g_main_window->setAttribute(Qt::WA_ShowWithoutActivating);
+		g_main_window->setWindowFlag(Qt::WindowDoesNotAcceptFocus);
+	}
 	g_main_window->initialize();
 
 	// When running in batch mode, ensure game list is loaded, but don't scan for any new files.

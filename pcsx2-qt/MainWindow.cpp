@@ -136,6 +136,11 @@ MainWindow::~MainWindow()
 #endif
 }
 
+void MainWindow::setVisible(bool visible)
+{
+	QMainWindow::setVisible(visible && !Host::InNoGUIMode());
+}
+
 void MainWindow::initialize()
 {
 #ifdef __APPLE__
