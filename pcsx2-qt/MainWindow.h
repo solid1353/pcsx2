@@ -86,6 +86,7 @@ public:
 public:
 	MainWindow();
 	~MainWindow();
+	void setVisible(bool visible) override;
 
 	void initialize();
 	void connectVMThreadSignals(EmuThread* thread);
