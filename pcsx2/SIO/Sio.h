@@ -128,6 +128,8 @@ extern uint32_t sioLastFrameMcdBusy;
 
 namespace MemcardBusy
 {
+	extern void SetWriteDiscardMode(bool enabled);
+	extern bool IsWriteDiscardMode();
 	extern void Decrement();
 	extern void SetBusy();
 	extern bool IsBusy();

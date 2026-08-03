@@ -277,6 +277,7 @@ void FileMemoryCard::Open()
 		}
 
 		const std::string fname = EmuConfig.FullpathToMcd(slot);
+		const char* open_mode = MemcardBusy::IsWriteDiscardMode() ? "rb" : "r+b";
 
 		if (!EmuConfig.Mcd[slot].Enabled || fname.empty())
 		{
@@ -305,11 +306,11 @@ void FileMemoryCard::Open()
 			}
 
 			// store the original filename
-			m_file[slot] = FileSystem::OpenSharedCFile(newname.c_str(), "r+b", FileSystem::FileShareMode::DenyWrite);
+			m_file[slot] = FileSystem::OpenSharedCFile(newname.c_str(), open_mode, FileSystem::FileShareMode::DenyNone);
 		}
 		else
 		{
-			m_file[slot] = FileSystem::OpenSharedCFile(fname.c_str(), "r+b", FileSystem::FileShareMode::DenyWrite);
+			m_file[slot] = FileSystem::OpenSharedCFile(fname.c_str(), open_mode, FileSystem::FileShareMode::DenyNone);
 		}
 
 		if (!m_file[slot])
@@ -351,7 +352,7 @@ void FileMemoryCard::Close()
 			continue;
 
 		// Store checksum
-		if (!m_ispsx[slot] && FileSystem::FSeek64(m_file[slot], m_chkaddr, SEEK_SET) == 0)
+		if (!MemcardBusy::IsWriteDiscardMode() && !m_ispsx[slot] && FileSystem::FSeek64(m_file[slot], m_chkaddr, SEEK_SET) == 0)
 			std::fwrite(&m_chksum[slot], sizeof(m_chksum[slot]), 1, m_file[slot]);
 
 		std::fclose(m_file[slot]);
@@ -360,7 +361,7 @@ void FileMemoryCard::Close()
 		if (m_filenames[slot].ends_with(".bin") || m_filenames[slot].ends_with(".mc2"))
 		{
 			const std::string name_in(m_filenames[slot] + 'x');
-			if (ConvertRAWtoNoECC(name_in.c_str(), m_filenames[slot].c_str()))
+			if (MemcardBusy::IsWriteDiscardMode() || ConvertRAWtoNoECC(name_in.c_str(), m_filenames[slot].c_str()))
 				FileSystem::DeleteFilePath(name_in.c_str());
 		}
 
@@ -757,6 +758,9 @@ s32 FileMcd_Read(uint port, uint slot, u8* dest, u32 adr, int size)
 
 s32 FileMcd_Save(uint port, uint slot, const u8* src, u32 adr, int size)
 {
+	if (MemcardBusy::IsWriteDiscardMode())
+		return 1;
+
 	const uint combinedSlot = FileMcd_ConvertToSlot(port, slot);
 	switch (EmuConfig.Mcd[combinedSlot].Type)
 	{
@@ -771,6 +775,9 @@ s32 FileMcd_Save(uint port, uint slot, const u8* src, u32 adr, int size)
 
 s32 FileMcd_EraseBlock(uint port, uint slot, u32 adr)
 {
+	if (MemcardBusy::IsWriteDiscardMode())
+		return 1;
+
 	const uint combinedSlot = FileMcd_ConvertToSlot(port, slot);
 	switch (EmuConfig.Mcd[combinedSlot].Type)
 	{
