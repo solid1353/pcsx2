@@ -128,8 +128,21 @@ void AutoEject::ClearAll()
 // memcards are considered "no longer being written to". Used as a way to detect if it is
 // unsafe to shutdown the VM due to memcard access.
 static std::atomic_uint32_t currentBusyTicks = 0;
+static std::atomic_bool discardWrites = false;
 
 uint32_t sioLastFrameMcdBusy = 0;
+
+void MemcardBusy::SetWriteDiscardMode(bool enabled)
+{
+	discardWrites.store(enabled, std::memory_order_release);
+	if (enabled)
+		ClearBusy();
+}
+
+bool MemcardBusy::IsWriteDiscardMode()
+{
+	return discardWrites.load(std::memory_order_acquire);
+}
 
 void MemcardBusy::Decrement()
 {
@@ -141,13 +154,16 @@ void MemcardBusy::Decrement()
 
 void MemcardBusy::SetBusy()
 {
+	if (IsWriteDiscardMode())
+		return;
+
 	currentBusyTicks.store(300, std::memory_order_release);
 	sioLastFrameMcdBusy = g_FrameCount;
 }
 
 bool MemcardBusy::IsBusy()
 {
-	return (currentBusyTicks.load(std::memory_order_acquire) > 0);
+	return !IsWriteDiscardMode() && (currentBusyTicks.load(std::memory_order_acquire) > 0);
 }
 
 void MemcardBusy::ClearBusy()
@@ -158,6 +174,9 @@ void MemcardBusy::ClearBusy()
 
 void MemcardBusy::CheckSaveStateDependency()
 {
+	if (IsWriteDiscardMode())
+		return;
+
 	if (g_FrameCount - sioLastFrameMcdBusy > NUM_FRAMES_BEFORE_SAVESTATE_DEPENDENCY_WARNING)
 	{
 		Host::AddIconOSDMessage("MemcardBusy", ICON_PF_MEMORY_CARD,
