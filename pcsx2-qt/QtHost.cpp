@@ -47,7 +47,9 @@
 #include "common/StringUtil.h"
 #include "common/Timer.h"
 
+#include <QtCore/QDir>
 #include <QtCore/QTimer>
+#include <QtCore/QFileInfo>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QFileDialog>
@@ -2160,6 +2162,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -nogui: Hides main window while running (implies batch mode).\n");
 	std::fprintf(stderr, "  -surfaceless: Runs emulation without creating or activating a window (implies batch mode).\n");
 	std::fprintf(stderr, "  -discard-memory-card-writes: Reports memory card writes as successful without changing card contents.\n");
+	std::fprintf(stderr, "  -memory-card <path>: Uses path as the slot 1 memory card without changing persistent settings.\n");
 	std::fprintf(stderr, "  -portable: Force enable portable mode to store data in local PCSX2 path instead of the default configuration path. Overrides '-datapath'.\n");
 	std::fprintf(stderr, "  -datapath <path>: Specify the directory to be used for all application data.\n");
 	std::fprintf(stderr, "  -pine-port <port>: Override the PINE TCP port for this process without changing persistent settings.\n");
@@ -2249,6 +2252,20 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 			else if (CHECK_ARG(QStringLiteral("-discard-memory-card-writes")))
 			{
 				MemcardBusy::SetWriteDiscardMode(true);
+				continue;
+			}
+			else if (CHECK_ARG_PARAM(QStringLiteral("-memory-card")))
+			{
+				const QFileInfo path(*(++it));
+				if (!path.isFile())
+				{
+					QMessageBox::critical(nullptr, QStringLiteral("Error"),
+						QStringLiteral("Memory card does not exist: %1").arg(path.absoluteFilePath()));
+					return false;
+				}
+
+				VMManager::Internal::SetMemoryCardOverride(
+					QDir::toNativeSeparators(path.absoluteFilePath()).toStdString());
 				continue;
 			}
 			else if (CHECK_ARG(QStringLiteral("-portable")))

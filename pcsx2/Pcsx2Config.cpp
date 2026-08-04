@@ -2087,6 +2087,9 @@ std::string Pcsx2Config::FullpathToBios() const
 
 std::string Pcsx2Config::FullpathToMcd(uint slot) const
 {
+	if (slot == 0 && !CurrentMemoryCardPath.empty())
+		return CurrentMemoryCardPath;
+
 	return Path::Combine(EmuFolders::MemoryCards, Mcd[slot].Filename);
 }
 
@@ -2095,6 +2098,7 @@ void Pcsx2Config::CopyRuntimeConfig(Pcsx2Config& cfg)
 	CurrentBlockdump = std::move(cfg.CurrentBlockdump);
 	CurrentIRX = std::move(cfg.CurrentIRX);
 	CurrentGameArgs = std::move(cfg.CurrentGameArgs);
+	CurrentMemoryCardPath = std::move(cfg.CurrentMemoryCardPath);
 	CurrentAspectRatio = cfg.CurrentAspectRatio;
 	CurrentCustomAspectRatio = cfg.CurrentCustomAspectRatio;
 	IsPortableMode = cfg.IsPortableMode;
