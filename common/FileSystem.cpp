@@ -29,6 +29,7 @@
 
 #if defined(_WIN32)
 #include "common/RedtapeWindows.h"
+#include <fcntl.h>
 #include <io.h>
 #include <malloc.h>
 #include <pathcch.h>
@@ -1071,12 +1072,67 @@ std::FILE* FileSystem::OpenSharedCFile(const char* filename, const char* mode, F
 	if (wfilename.empty() || wmode.empty())
 		return nullptr;
 
+	if (share_mode == FileShareMode::DenyNone)
+	{
+		const bool update = std::strchr(mode, '+') != nullptr;
+		const bool binary = std::strchr(mode, 'b') != nullptr;
+		DWORD access;
+		DWORD disposition;
+		int open_flags = binary ? _O_BINARY : _O_TEXT;
+		switch (mode[0])
+		{
+			case 'r':
+				access = GENERIC_READ | (update ? GENERIC_WRITE : 0);
+				disposition = OPEN_EXISTING;
+				open_flags |= update ? _O_RDWR : _O_RDONLY;
+				break;
+			case 'w':
+				access = GENERIC_WRITE | (update ? GENERIC_READ : 0);
+				disposition = CREATE_ALWAYS;
+				open_flags |= update ? _O_RDWR : _O_WRONLY;
+				break;
+			case 'a':
+				access = GENERIC_WRITE | (update ? GENERIC_READ : 0);
+				disposition = OPEN_ALWAYS;
+				open_flags |= (update ? _O_RDWR : _O_WRONLY) | _O_APPEND;
+				break;
+			default:
+				Error::SetErrno(error, EINVAL);
+				return nullptr;
+		}
+
+		const HANDLE handle = CreateFileW(wfilename.c_str(), access,
+			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, disposition,
+			FILE_ATTRIBUTE_NORMAL, nullptr);
+		if (handle == INVALID_HANDLE_VALUE)
+		{
+			Error::SetWin32(error, GetLastError());
+			return nullptr;
+		}
+
+		const int fd = _open_osfhandle(reinterpret_cast<intptr_t>(handle), open_flags);
+		if (fd < 0)
+		{
+			const int error_code = errno;
+			CloseHandle(handle);
+			Error::SetErrno(error, error_code);
+			return nullptr;
+		}
+
+		std::FILE* fp = _fdopen(fd, mode);
+		if (!fp)
+		{
+			const int error_code = errno;
+			_close(fd);
+			Error::SetErrno(error, error_code);
+			return nullptr;
+		}
+		return fp;
+	}
+
 	int share_flags = 0;
 	switch (share_mode)
 	{
-		case FileShareMode::DenyNone:
-			share_flags = _SH_DENYNO;
-			break;
 		case FileShareMode::DenyRead:
 			share_flags = _SH_DENYRD;
 			break;

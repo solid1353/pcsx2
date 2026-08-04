@@ -129,7 +129,7 @@ namespace FileSystem
 		DenyReadWrite, /// Exclusive access.
 		DenyWrite, /// Other processes can read from this file.
 		DenyRead, /// Other processes can write to this file.
-		DenyNone, /// Other processes can read and write to this file.
+		DenyNone, /// Other processes can read, write, rename, or delete this file.
 	};
 
 	/// Opens a file in shareable mode (where other processes can access it concurrently).

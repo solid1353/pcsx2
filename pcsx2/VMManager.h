@@ -294,6 +294,9 @@ namespace VMManager
 		/// Overrides the PINE TCP port for this process without changing persistent settings.
 		void SetPINEPortOverride(int port);
 
+		/// Overrides the slot 1 memory card for this process without changing persistent settings.
+		void SetMemoryCardOverride(std::string path);
+
 		/// Prevents the system console from being displayed.
 		void SetBlockSystemConsole(bool block);
 
