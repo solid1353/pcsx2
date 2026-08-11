@@ -297,6 +297,9 @@ namespace VMManager
 		/// Overrides the slot 1 memory card for this process without changing persistent settings.
 		void SetMemoryCardOverride(std::string path);
 
+		/// Forces audio output muted for this process without changing persistent settings.
+		void SetOutputMutedOverride(bool muted);
+
 		/// Prevents the system console from being displayed.
 		void SetBlockSystemConsole(bool block);
 

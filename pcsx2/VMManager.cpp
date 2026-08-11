@@ -83,6 +83,7 @@ namespace VMManager
 {
 	static std::optional<int> s_pine_port_override;
 	static std::optional<std::string> s_memory_card_override;
+	static bool s_output_muted_override = false;
 
 	static void SetDefaultLoggingSettings(SettingsInterface& si);
 	static void UpdateLoggingSettings(SettingsInterface& si);
@@ -486,6 +487,11 @@ void VMManager::Internal::SetMemoryCardOverride(std::string path)
 	s_memory_card_override = std::move(path);
 }
 
+void VMManager::Internal::SetOutputMutedOverride(bool muted)
+{
+	s_output_muted_override = muted;
+}
+
 void VMManager::Internal::SetBlockSystemConsole(bool block)
 {
 	s_log_block_system_console = block;
@@ -627,6 +633,8 @@ void VMManager::LoadSettings()
 	std::unique_lock<std::mutex> lock = Host::GetSettingsLock();
 	SettingsInterface* si = Host::GetSettingsInterface();
 	LoadCoreSettings(*si);
+	if (s_output_muted_override)
+		EmuConfig.SPU2.OutputMuted = true;
 	Pad::LoadConfig(*si);
 	Host::LoadSettings(*si, lock);
 	InputManager::ReloadSources(*si, lock);
