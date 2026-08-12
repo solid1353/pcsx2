@@ -104,6 +104,8 @@ static bool s_cleanup_after_update = false;
 static bool s_boot_and_debug = false;
 static std::optional<LimiterModeType> s_timed_limiter_mode;
 static int s_timed_limiter_duration_ms = 0;
+static std::optional<u64> s_unlimited_frame_count;
+static LimiterModeType s_unlimited_frame_fallback_mode = LimiterModeType::Nominal;
 static std::atomic_int s_vm_locked_with_dialog = 0;
 static std::string s_clipboard_cache;
 static std::mutex s_clipboard_cache_mutex;
@@ -226,6 +228,13 @@ void EmuThread::startVM(std::shared_ptr<VMBootParameters> boot_params)
 		m_timed_limiter_timer->stop();
 		boot_params->start_turbo = (s_timed_limiter_mode.value() == LimiterModeType::Turbo);
 		boot_params->start_unlimited = (s_timed_limiter_mode.value() == LimiterModeType::Unlimited);
+	}
+	else if (s_unlimited_frame_count.has_value())
+	{
+		boot_params->start_turbo = false;
+		boot_params->start_unlimited = true;
+		boot_params->start_unlimited_frame_count = s_unlimited_frame_count;
+		boot_params->unlimited_frame_fallback_mode = s_unlimited_frame_fallback_mode;
 	}
 
 	// Determine whether to start fullscreen or not.
@@ -2232,6 +2241,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -unlimited: Enters unlimited (fast forward) mode after starting.\n");
 	std::fprintf(stderr, "  -turbo-for <seconds>: Uses turbo mode for the specified duration after each game starts.\n");
 	std::fprintf(stderr, "  -unlimited-for <seconds>: Uses unlimited mode for the specified duration after each game starts.\n");
+	std::fprintf(stderr, "  -unlimited-for-frames <frames>: Uses unlimited mode for the specified emulated frames after each game starts.\n");
 #ifdef ENABLE_RAINTEGRATION
 	std::fprintf(stderr, "  -raintegration: Use RAIntegration instead of built-in achievement support.\n");
 #endif
@@ -2472,11 +2482,13 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 					return false;
 				}
 				AutoBoot(autoboot)->start_turbo = true;
+				if (s_unlimited_frame_count.has_value())
+					s_unlimited_frame_fallback_mode = LimiterModeType::Turbo;
 				continue;
 			}
 			else if (CHECK_ARG(QStringLiteral("-unlimited")))
 			{
-				if (s_timed_limiter_mode.has_value())
+				if (s_timed_limiter_mode.has_value() || s_unlimited_frame_count.has_value())
 				{
 					QMessageBox::critical(nullptr, QStringLiteral("Error"),
 						QStringLiteral("Timed and permanent fast-forward options cannot be combined."));
@@ -2506,7 +2518,7 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 							.arg(max_duration_seconds));
 					return false;
 				}
-				if (s_timed_limiter_mode.has_value() ||
+				if (s_timed_limiter_mode.has_value() || s_unlimited_frame_count.has_value() ||
 					(autoboot && (autoboot->start_turbo.value_or(false) || autoboot->start_unlimited.value_or(false))))
 				{
 					QMessageBox::critical(nullptr, QStringLiteral("Error"),
@@ -2516,6 +2528,37 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 
 				s_timed_limiter_mode = (option == QStringLiteral("-turbo-for")) ? LimiterModeType::Turbo : LimiterModeType::Unlimited;
 				s_timed_limiter_duration_ms = static_cast<int>(duration_seconds * 1000);
+				continue;
+			}
+			else if (CHECK_ARG(QStringLiteral("-unlimited-for-frames")))
+			{
+				const QString option = *it;
+				if (++it == args.end())
+				{
+					QMessageBox::critical(nullptr, QStringLiteral("Error"),
+						QStringLiteral("%1 requires a frame count.").arg(option));
+					return false;
+				}
+
+				bool ok = false;
+				const qulonglong frame_count = it->toULongLong(&ok);
+				if (!ok || frame_count == 0)
+				{
+					QMessageBox::critical(nullptr, QStringLiteral("Error"),
+						QStringLiteral("%1 frame count must be a positive integer.").arg(option));
+					return false;
+				}
+				if (s_timed_limiter_mode.has_value() || s_unlimited_frame_count.has_value() ||
+					(autoboot && autoboot->start_unlimited.value_or(false)))
+				{
+					QMessageBox::critical(nullptr, QStringLiteral("Error"),
+						QStringLiteral("Only one timed or permanent unlimited option may be used."));
+					return false;
+				}
+
+				s_unlimited_frame_count = static_cast<u64>(frame_count);
+				if (autoboot && autoboot->start_turbo.value_or(false))
+					s_unlimited_frame_fallback_mode = LimiterModeType::Turbo;
 				continue;
 			}
 #ifdef ENABLE_RAINTEGRATION

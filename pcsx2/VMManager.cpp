@@ -185,6 +185,8 @@ static bool s_elf_executed = false;
 static std::string s_elf_override;
 static std::string s_input_profile_name;
 static u32 s_frame_advance_count = 0;
+static u64 s_unlimited_frames_remaining = 0;
+static LimiterModeType s_unlimited_frame_fallback_mode = LimiterModeType::Nominal;
 static bool s_fast_boot_requested = false;
 static bool s_gs_open_on_initialize = false;
 static bool s_thread_affinities_set = false;
@@ -1596,6 +1598,8 @@ VMBootResult VMManager::Initialize(const VMBootParameters& boot_params, Error* e
 		s_limiter_mode = LimiterModeType::Turbo;
 	else
 		s_limiter_mode = LimiterModeType::Nominal;
+	s_unlimited_frames_remaining = boot_params.start_unlimited_frame_count.value_or(0);
+	s_unlimited_frame_fallback_mode = boot_params.unlimited_frame_fallback_mode;
 
 	s_target_speed = GetTargetSpeedForLimiterMode(s_limiter_mode);
 	s_use_vsync_for_timing = false;
@@ -2997,6 +3001,14 @@ void VMManager::Internal::VSyncOnCPUThread()
 	Pad::UpdateMacroButtons();
 
 	Patch::ApplyVsyncPatches();
+
+	// Count emulated frames at the CPU-thread VSync boundary; this needs proper runtime testing across consecutive VM launches.
+	if (s_unlimited_frames_remaining > 0)
+	{
+		s_unlimited_frames_remaining--;
+		if (s_unlimited_frames_remaining == 0 && s_limiter_mode == LimiterModeType::Unlimited)
+			SetLimiterMode(s_unlimited_frame_fallback_mode);
+	}
 
 	// Frame advance must be done *before* pumping messages, because otherwise
 	// we'll immediately reduce the counter we just set.
