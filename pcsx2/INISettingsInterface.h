@@ -16,6 +16,8 @@ public:
 	INISettingsInterface(std::string filename, std::string section_prefix = {});
 	~INISettingsInterface() override;
 
+	static void SetSaveSuppressed(bool suppressed);
+
 	const std::string& GetFileName() const { return m_filename; }
 	const std::string& GetSectionPrefix() const { return m_section_prefix; }
 	bool IsDirty() const { return m_dirty; }

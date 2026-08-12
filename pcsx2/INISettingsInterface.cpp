@@ -22,6 +22,7 @@
 // To prevent races between saving and loading settings, particularly with game settings,
 // we only allow one ini to be parsed at any point in time.
 static std::mutex s_ini_load_save_mutex;
+static bool s_save_suppressed = false;
 
 static std::FILE* GetTemporaryFile(std::string* temporary_filename, const std::string& original_filename,
 	const char* mode, Error* error)
@@ -68,6 +69,11 @@ INISettingsInterface::INISettingsInterface(std::string filename, std::string sec
 {
 }
 
+void INISettingsInterface::SetSaveSuppressed(bool suppressed)
+{
+	s_save_suppressed = suppressed;
+}
+
 std::string INISettingsInterface::GetSectionName(const char* section) const
 {
 	return m_section_prefix.empty() ? std::string(section) : m_section_prefix + section;
@@ -107,6 +113,12 @@ bool INISettingsInterface::Load()
 
 bool INISettingsInterface::Save(Error* error)
 {
+	if (s_save_suppressed)
+	{
+		m_dirty = false;
+		return true;
+	}
+
 	if (m_filename.empty())
 	{
 		Error::SetStringView(error, "Filename is not set.");

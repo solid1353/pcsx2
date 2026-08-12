@@ -1482,7 +1482,7 @@ bool QtHost::InitializeConfig()
 	Host::Internal::SetSecretsSettingsLayer(s_secrets_settings_interface.get());
 	if (!secrets_settings_exists || !s_secrets_settings_interface->Load())
 	{
-		if (!s_base_settings_interface->Save(&error))
+		if (!s_secrets_settings_interface->Save(&error))
 		{
 			QMessageBox::critical(
 				nullptr, QStringLiteral("PCSX2"),
@@ -2213,6 +2213,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -nogui: Hides main window while running (implies batch mode).\n");
 	std::fprintf(stderr, "  -surfaceless: Runs emulation without creating or activating a window (implies batch mode).\n");
 	std::fprintf(stderr, "  -mute: Mutes audio output for this process without changing persistent settings.\n");
+	std::fprintf(stderr, "  -read-only-settings: Prevents settings INI writes for this process.\n");
 	std::fprintf(stderr, "  -discard-memory-card-writes: Reports memory card writes as successful without changing card contents.\n");
 	std::fprintf(stderr, "  -memory-card <path>: Uses path as the slot 1 memory card without changing persistent settings.\n");
 	std::fprintf(stderr, "  -portable: Force enable portable mode to store data in local PCSX2 path instead of the default configuration path. Overrides '-datapath'.\n");
@@ -2307,6 +2308,11 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 			else if (CHECK_ARG(QStringLiteral("-mute")))
 			{
 				VMManager::Internal::SetOutputMutedOverride(true);
+				continue;
+			}
+			else if (CHECK_ARG(QStringLiteral("-read-only-settings")))
+			{
+				INISettingsInterface::SetSaveSuppressed(true);
 				continue;
 			}
 			else if (CHECK_ARG(QStringLiteral("-discard-memory-card-writes")))
