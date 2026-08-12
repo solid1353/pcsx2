@@ -60,6 +60,7 @@
 
 #include <cmath>
 #include <csignal>
+#include <limits>
 
 static constexpr u32 SETTINGS_SAVE_DELAY = 1000;
 static constexpr const char* RUNTIME_RESOURCES_URL =
@@ -101,6 +102,8 @@ static bool s_test_config_and_exit = false;
 static bool s_run_setup_wizard = false;
 static bool s_cleanup_after_update = false;
 static bool s_boot_and_debug = false;
+static std::optional<LimiterModeType> s_timed_limiter_mode;
+static int s_timed_limiter_duration_ms = 0;
 static std::atomic_int s_vm_locked_with_dialog = 0;
 static std::string s_clipboard_cache;
 static std::mutex s_clipboard_cache_mutex;
@@ -218,6 +221,13 @@ void EmuThread::startVM(std::shared_ptr<VMBootParameters> boot_params)
 		return;
 	}
 
+	if (s_timed_limiter_mode.has_value())
+	{
+		m_timed_limiter_timer->stop();
+		boot_params->start_turbo = (s_timed_limiter_mode.value() == LimiterModeType::Turbo);
+		boot_params->start_unlimited = (s_timed_limiter_mode.value() == LimiterModeType::Unlimited);
+	}
+
 	// Determine whether to start fullscreen or not.
 	m_is_rendering_to_main = shouldRenderToMain();
 	if (boot_params->fullscreen.has_value())
@@ -270,6 +280,8 @@ void EmuThread::startVM(std::shared_ptr<VMBootParameters> boot_params)
 			g_emu_thread->redrawDisplayWindow();
 			Host::OnVMPaused();
 		}
+
+		g_emu_thread->startTimedLimiterTimer();
 
 		g_emu_thread->getEventLoop()->quit();
 	};
@@ -410,6 +422,7 @@ void EmuThread::run()
 
 	// Start background polling because the VM won't do it for us.
 	createBackgroundControllerPollTimer();
+	createTimedLimiterTimer();
 	startBackgroundControllerPollTimer();
 
 	// Main CPU thread loop.
@@ -447,6 +460,7 @@ void EmuThread::run()
 	// Teardown in reverse order.
 	stopBackgroundControllerPollTimer();
 	destroyBackgroundControllerPollTimer();
+	destroyTimedLimiterTimer();
 	VMManager::Internal::CPUThreadShutdown();
 
 	// Move back to the UI thread, since we're no longer running.
@@ -456,6 +470,7 @@ void EmuThread::run()
 
 void EmuThread::destroyVM()
 {
+	m_timed_limiter_timer->stop();
 	m_last_speed = 0.0f;
 	m_last_gpu_usage = 0.0f;
 	m_last_game_fps = 0.0f;
@@ -507,6 +522,33 @@ void EmuThread::stopBackgroundControllerPollTimer()
 void EmuThread::doBackgroundControllerPoll()
 {
 	VMManager::IdlePollUpdate();
+}
+
+void EmuThread::createTimedLimiterTimer()
+{
+	pxAssert(!m_timed_limiter_timer);
+	m_timed_limiter_timer = new QTimer(this);
+	m_timed_limiter_timer->setSingleShot(true);
+	m_timed_limiter_timer->setTimerType(Qt::PreciseTimer);
+	connect(m_timed_limiter_timer, &QTimer::timeout, this, []() {
+		if (VMManager::HasValidVM() && s_timed_limiter_mode.has_value() &&
+			VMManager::GetLimiterMode() == s_timed_limiter_mode.value())
+		{
+			VMManager::SetLimiterMode(LimiterModeType::Nominal);
+		}
+	});
+}
+
+void EmuThread::destroyTimedLimiterTimer()
+{
+	delete m_timed_limiter_timer;
+	m_timed_limiter_timer = nullptr;
+}
+
+void EmuThread::startTimedLimiterTimer()
+{
+	if (s_timed_limiter_mode.has_value())
+		m_timed_limiter_timer->start(s_timed_limiter_duration_ms);
 }
 
 void EmuThread::toggleFullscreen()
@@ -2188,6 +2230,8 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -debugger: Open debugger and break on entry point.\n");
 	std::fprintf(stderr, "  -turbo: Enters turbo (fast forward) mode after starting.\n");
 	std::fprintf(stderr, "  -unlimited: Enters unlimited (fast forward) mode after starting.\n");
+	std::fprintf(stderr, "  -turbo-for <seconds>: Uses turbo mode for the specified duration after each game starts.\n");
+	std::fprintf(stderr, "  -unlimited-for <seconds>: Uses unlimited mode for the specified duration after each game starts.\n");
 #ifdef ENABLE_RAINTEGRATION
 	std::fprintf(stderr, "  -raintegration: Use RAIntegration instead of built-in achievement support.\n");
 #endif
@@ -2421,12 +2465,57 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 			}
 			else if (CHECK_ARG(QStringLiteral("-turbo")))
 			{
+				if (s_timed_limiter_mode.has_value())
+				{
+					QMessageBox::critical(nullptr, QStringLiteral("Error"),
+						QStringLiteral("Timed and permanent fast-forward options cannot be combined."));
+					return false;
+				}
 				AutoBoot(autoboot)->start_turbo = true;
 				continue;
 			}
 			else if (CHECK_ARG(QStringLiteral("-unlimited")))
 			{
+				if (s_timed_limiter_mode.has_value())
+				{
+					QMessageBox::critical(nullptr, QStringLiteral("Error"),
+						QStringLiteral("Timed and permanent fast-forward options cannot be combined."));
+					return false;
+				}
 				AutoBoot(autoboot)->start_unlimited = true;
+				continue;
+			}
+			else if (CHECK_ARG(QStringLiteral("-turbo-for")) || CHECK_ARG(QStringLiteral("-unlimited-for")))
+			{
+				const QString option = *it;
+				if (++it == args.end())
+				{
+					QMessageBox::critical(nullptr, QStringLiteral("Error"),
+						QStringLiteral("%1 requires a duration in seconds.").arg(option));
+					return false;
+				}
+
+				bool ok = false;
+				const qint64 duration_seconds = it->toLongLong(&ok);
+				constexpr qint64 max_duration_seconds = std::numeric_limits<int>::max() / 1000;
+				if (!ok || duration_seconds <= 0 || duration_seconds > max_duration_seconds)
+				{
+					QMessageBox::critical(nullptr, QStringLiteral("Error"),
+						QStringLiteral("%1 duration must be a positive integer no greater than %2 seconds.")
+							.arg(option)
+							.arg(max_duration_seconds));
+					return false;
+				}
+				if (s_timed_limiter_mode.has_value() ||
+					(autoboot && (autoboot->start_turbo.value_or(false) || autoboot->start_unlimited.value_or(false))))
+				{
+					QMessageBox::critical(nullptr, QStringLiteral("Error"),
+						QStringLiteral("Timed and permanent fast-forward options cannot be combined."));
+					return false;
+				}
+
+				s_timed_limiter_mode = (option == QStringLiteral("-turbo-for")) ? LimiterModeType::Turbo : LimiterModeType::Unlimited;
+				s_timed_limiter_duration_ms = static_cast<int>(duration_seconds * 1000);
 				continue;
 			}
 #ifdef ENABLE_RAINTEGRATION

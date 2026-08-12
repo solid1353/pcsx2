@@ -183,6 +183,9 @@ private:
 
 	void createBackgroundControllerPollTimer();
 	void destroyBackgroundControllerPollTimer();
+	void createTimedLimiterTimer();
+	void destroyTimedLimiterTimer();
+	void startTimedLimiterTimer();
 	void connectSignals();
 
 private Q_SLOTS:
@@ -197,6 +200,7 @@ private:
 	QSemaphore m_started_semaphore;
 	QEventLoop* m_event_loop = nullptr;
 	QTimer* m_background_controller_polling_timer = nullptr;
+	QTimer* m_timed_limiter_timer = nullptr;
 
 	std::atomic_bool m_shutdown_flag{false};
 	std::atomic_bool m_run_fullscreen_ui{false};
