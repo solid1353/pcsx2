@@ -185,6 +185,7 @@ static bool s_elf_executed = false;
 static std::string s_elf_override;
 static std::string s_input_profile_name;
 static u32 s_frame_advance_count = 0;
+static u64 s_unlimited_frame_count = 0;
 static u64 s_unlimited_frames_remaining = 0;
 static LimiterModeType s_unlimited_frame_fallback_mode = LimiterModeType::Nominal;
 static bool s_fast_boot_requested = false;
@@ -1598,7 +1599,8 @@ VMBootResult VMManager::Initialize(const VMBootParameters& boot_params, Error* e
 		s_limiter_mode = LimiterModeType::Turbo;
 	else
 		s_limiter_mode = LimiterModeType::Nominal;
-	s_unlimited_frames_remaining = boot_params.start_unlimited_frame_count.value_or(0);
+	s_unlimited_frame_count = boot_params.start_unlimited_frame_count.value_or(0);
+	s_unlimited_frames_remaining = s_unlimited_frame_count;
 	s_unlimited_frame_fallback_mode = boot_params.unlimited_frame_fallback_mode;
 
 	s_target_speed = GetTargetSpeedForLimiterMode(s_limiter_mode);
@@ -1896,6 +1898,11 @@ void VMManager::Reset()
 	}
 
 	ResetFrameLimiter();
+	if (s_unlimited_frame_count > 0)
+	{
+		s_unlimited_frames_remaining = s_unlimited_frame_count;
+		SetLimiterMode(LimiterModeType::Unlimited);
+	}
 
 	// If we were paused, state won't be resetting, so don't flip back to running.
 	if (s_state.load(std::memory_order_acquire) == VMState::Resetting)
