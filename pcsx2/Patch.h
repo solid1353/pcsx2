@@ -179,6 +179,12 @@ namespace Patch
 	extern void ClearPnachOverridePath();
 	extern const std::optional<std::string>& GetPnachOverridePath();
 
+	/// Adds a process-local executable PNACH line to apply after file-based PNACHs.
+	/// Returns false if the line is not accepted by the existing PNACH parser.
+	extern bool AddPnachLine(std::string line);
+	extern void ClearPnachLines();
+	extern const std::vector<std::string>& GetPnachLines();
+
 	extern std::vector<PatchInfo> GetPatchInfo(const std::string_view serial, u32 crc, bool cheats, bool showAllCRCS, u32* num_unlabelled_patches);
 
 	/// Returns the path to a new CRC-specific cheat/patch pnach for the specified serial and CRC.

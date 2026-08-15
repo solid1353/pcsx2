@@ -156,6 +156,34 @@ TEST(Patch, CustomPnachReplacesAutomaticPnachLoading)
 	EXPECT_TRUE(Patch::GetPatchInfo("SLUS-00000", 0x12345678, false, false, nullptr).empty());
 }
 
+TEST(Patch, ValidatesAndPreservesCommandLinePnachLines)
+{
+	struct Cleanup
+	{
+		~Cleanup() { Patch::ClearPnachLines(); }
+	} cleanup;
+
+	Patch::ClearPnachLines();
+	EXPECT_TRUE(Patch::AddPnachLine(" patch=1,EE,00100000,word,00000001 // first "));
+	EXPECT_TRUE(Patch::AddPnachLine("patch=1,EE,00100000,word,00000002"));
+	EXPECT_TRUE(Patch::AddPnachLine("gsaspectratio=16:9"));
+
+	const std::vector<std::string>& lines = Patch::GetPnachLines();
+	ASSERT_EQ(lines.size(), 3u);
+	EXPECT_EQ(lines[0], "patch=1,EE,00100000,word,00000001 ");
+	EXPECT_EQ(lines[1], "patch=1,EE,00100000,word,00000002");
+	EXPECT_EQ(lines[2], "gsaspectratio=16:9");
+
+	EXPECT_FALSE(Patch::AddPnachLine(""));
+	EXPECT_FALSE(Patch::AddPnachLine("// comment"));
+	EXPECT_FALSE(Patch::AddPnachLine("[Section]"));
+	EXPECT_FALSE(Patch::AddPnachLine("crc=12345678"));
+	EXPECT_FALSE(Patch::AddPnachLine("patch=1,EE,not-an-address,word,00000001"));
+	EXPECT_FALSE(Patch::AddPnachLine("unknown=1"));
+	EXPECT_FALSE(Patch::AddPnachLine("patch=1,EE,00100004,word,00000003\npatch=1,EE,00100008,word,00000004"));
+	EXPECT_EQ(Patch::GetPnachLines().size(), 3u);
+}
+
 // *****************************************************************************
 // Writes
 // *****************************************************************************

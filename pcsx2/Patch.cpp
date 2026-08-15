@@ -139,6 +139,7 @@ namespace Patch
 	static std::vector<DynamicPatch> s_active_gamedb_dynamic_patches;
 	static std::vector<DynamicPatch> s_active_pnach_dynamic_patches;
 	static std::optional<std::string> s_pnach_override_path;
+	static std::vector<std::string> s_pnach_lines;
 	static std::vector<std::string> s_enabled_cheats;
 	static std::vector<std::string> s_enabled_patches;
 	static std::vector<std::string> s_just_enabled_cheats;
@@ -518,6 +519,37 @@ void Patch::ClearPnachOverridePath()
 const std::optional<std::string>& Patch::GetPnachOverridePath()
 {
 	return s_pnach_override_path;
+}
+
+bool Patch::AddPnachLine(std::string line)
+{
+	if (line.find_first_of("\r\n") != std::string::npos)
+		return false;
+
+	TrimPatchLine(line);
+	if (line.empty())
+		return false;
+
+	PatchGroup parsed_line;
+	LoadPatchLine(&parsed_line, line);
+	if (parsed_line.patches.empty() && parsed_line.dpatches.empty() && !parsed_line.override_aspect_ratio.has_value() &&
+		!parsed_line.override_interlace_mode.has_value())
+	{
+		return false;
+	}
+
+	s_pnach_lines.push_back(std::move(line));
+	return true;
+}
+
+void Patch::ClearPnachLines()
+{
+	s_pnach_lines.clear();
+}
+
+const std::vector<std::string>& Patch::GetPnachLines()
+{
+	return s_pnach_lines;
 }
 
 bool Patch::PatchStringHasUnlabelledPatch(const std::string& pnach_data)
@@ -900,6 +932,16 @@ void Patch::ReloadPatches(const std::string& serial, u32 crc, bool reload_files,
 				if (patch_count > 0)
 					Console.WriteLn(Color_Green, fmt::format("Found {} cheats in {}.", patch_count, filename));
 			});
+
+		if (!s_pnach_lines.empty())
+		{
+			PatchGroup cli_group;
+			for (const std::string& line : s_pnach_lines)
+				LoadPatchLine(&cli_group, line);
+
+			s_cheat_patches.push_back(std::move(cli_group));
+			Console.WriteLn(Color_Green, fmt::format("Loaded {} command-line PNACH lines.", s_pnach_lines.size()));
+		}
 	}
 
 	UpdateActivePatches(reload_enabled_list, verbose, verbose_if_changed, false);
