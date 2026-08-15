@@ -405,7 +405,8 @@ std::string Patch::GetPnachTemplate(const std::string_view serial, u32 crc, bool
 
 std::vector<std::string> Patch::FindPatchFilesOnDisk(const std::string_view serial, u32 crc, bool cheats, bool all_crcs)
 {
-	const std::string& directory = cheats ? EmuFolders::Cheats : EmuFolders::Patches;
+	const std::vector<std::string> directories = cheats ? EmuFolders::GetContentSearchFolders(EmuFolders::Cheats) :
+	                                                      std::vector<std::string>{EmuFolders::Patches};
 	std::vector<std::string> patterns;
 	patterns.push_back(GetPnachTemplate(serial, crc, true, true, all_crcs));
 	patterns.push_back(GetPnachTemplate(serial, crc, false, true, false));
@@ -413,19 +414,23 @@ std::vector<std::string> Patch::FindPatchFilesOnDisk(const std::string_view seri
 		patterns.push_back(fmt::format("{}.pnach", serial));
 
 	std::vector<std::string> ret;
-	for (const bool recursive : {false, true})
+	for (const std::string& directory : directories)
 	{
-		for (const std::string& pattern : patterns)
+		for (const bool recursive : {false, true})
 		{
-			FileSystem::FindResultsArray files;
-			FileSystem::FindFiles(directory.c_str(), pattern.c_str(), FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_HIDDEN_FILES | (recursive ? FILESYSTEM_FIND_RECURSIVE : 0), &files);
-			std::sort(files.begin(), files.end(), [](const FILESYSTEM_FIND_DATA& lhs, const FILESYSTEM_FIND_DATA& rhs) {
-				return lhs.FileName < rhs.FileName;
-			});
-			for (FILESYSTEM_FIND_DATA& fd : files)
+			for (const std::string& pattern : patterns)
 			{
-				if (std::find(ret.begin(), ret.end(), fd.FileName) == ret.end())
-					ret.push_back(std::move(fd.FileName));
+				FileSystem::FindResultsArray files;
+				FileSystem::FindFiles(directory.c_str(), pattern.c_str(),
+					FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_HIDDEN_FILES | (recursive ? FILESYSTEM_FIND_RECURSIVE : 0), &files);
+				std::sort(files.begin(), files.end(), [](const FILESYSTEM_FIND_DATA& lhs, const FILESYSTEM_FIND_DATA& rhs) {
+					return lhs.FileName < rhs.FileName;
+				});
+				for (FILESYSTEM_FIND_DATA& fd : files)
+				{
+					if (std::find(ret.begin(), ret.end(), fd.FileName) == ret.end())
+						ret.push_back(std::move(fd.FileName));
+				}
 			}
 		}
 	}

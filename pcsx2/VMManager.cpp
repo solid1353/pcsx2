@@ -843,10 +843,10 @@ bool VMManager::ReloadGameSettings()
 	return true;
 }
 
-static std::optional<std::string> FindNestedGameSettingsFile(const std::string_view filename)
+static std::optional<std::string> FindNestedGameSettingsFile(const std::string& directory, const std::string_view filename)
 {
 	FileSystem::FindResultsArray files;
-	FileSystem::FindFiles(EmuFolders::GameSettings.c_str(), std::string(filename).c_str(),
+	FileSystem::FindFiles(directory.c_str(), std::string(filename).c_str(),
 		FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_HIDDEN_FILES | FILESYSTEM_FIND_RECURSIVE, &files);
 	if (files.empty())
 		return std::nullopt;
@@ -862,6 +862,25 @@ static std::optional<std::string> FindNestedGameSettingsFile(const std::string_v
 	return std::move(files.front().FileName);
 }
 
+static std::optional<std::string> FindGameSettingsFile(
+	const std::string& directory, const std::string_view preferred_filename, const std::string_view exact_filename = {})
+{
+	const std::string preferred_path = Path::Combine(directory, preferred_filename);
+	if (FileSystem::FileExists(preferred_path.c_str()))
+		return preferred_path;
+	if (!exact_filename.empty())
+	{
+		const std::string exact_path = Path::Combine(directory, exact_filename);
+		if (FileSystem::FileExists(exact_path.c_str()))
+			return exact_path;
+	}
+	if (std::optional<std::string> path = FindNestedGameSettingsFile(directory, preferred_filename))
+		return path;
+	if (!exact_filename.empty())
+		return FindNestedGameSettingsFile(directory, exact_filename);
+	return std::nullopt;
+}
+
 std::string VMManager::GetGameSettingsPath(const std::string_view game_serial, u32 game_crc)
 {
 	const std::string sanitized_serial(Path::SanitizeFileName(game_serial));
@@ -869,27 +888,23 @@ std::string VMManager::GetGameSettingsPath(const std::string_view game_serial, u
 	{
 		const std::string serial_filename = fmt::format("{}.ini", sanitized_serial);
 		const std::string exact_filename = fmt::format("{}_{:08X}.ini", sanitized_serial, game_crc);
-		const std::string root_serial_path = Path::Combine(EmuFolders::GameSettings, serial_filename);
-		if (FileSystem::FileExists(root_serial_path.c_str()))
-			return root_serial_path;
 		const std::string root_exact_path = Path::Combine(EmuFolders::GameSettings, exact_filename);
-		if (FileSystem::FileExists(root_exact_path.c_str()))
-			return root_exact_path;
-
-		if (std::optional<std::string> path = FindNestedGameSettingsFile(serial_filename))
-			return std::move(path.value());
-		if (std::optional<std::string> path = FindNestedGameSettingsFile(exact_filename))
-			return std::move(path.value());
+		for (const std::string& directory : EmuFolders::GetContentSearchFolders(EmuFolders::GameSettings))
+		{
+			if (std::optional<std::string> path = FindGameSettingsFile(directory, serial_filename, exact_filename))
+				return std::move(path.value());
+		}
 
 		return root_exact_path;
 	}
 
 	const std::string crc_filename = fmt::format("{:08X}.ini", game_crc);
 	const std::string root_crc_path = Path::Combine(EmuFolders::GameSettings, crc_filename);
-	if (FileSystem::FileExists(root_crc_path.c_str()))
-		return root_crc_path;
-	if (std::optional<std::string> path = FindNestedGameSettingsFile(crc_filename))
-		return std::move(path.value());
+	for (const std::string& directory : EmuFolders::GetContentSearchFolders(EmuFolders::GameSettings))
+	{
+		if (std::optional<std::string> path = FindGameSettingsFile(directory, crc_filename))
+			return std::move(path.value());
+	}
 	return root_crc_path;
 }
 
@@ -950,6 +965,8 @@ void VMManager::Internal::UpdateEmuFolders()
 {
 	const std::string old_cheats_directory(EmuFolders::Cheats);
 	const std::string old_patches_directory(EmuFolders::Patches);
+	const std::string old_game_settings_directory(EmuFolders::GameSettings);
+	const std::vector<std::string> old_additional_content_folders(EmuFolders::AdditionalContentFolders);
 	const std::string old_memcards_directory(EmuFolders::MemoryCards);
 	const std::string old_textures_directory(EmuFolders::Textures);
 	const std::string old_videos_directory(EmuFolders::Videos);
@@ -957,10 +974,18 @@ void VMManager::Internal::UpdateEmuFolders()
 	auto lock = Host::GetSettingsLock();
 	EmuFolders::LoadConfig(*Host::Internal::GetBaseSettingsLayer());
 	EmuFolders::EnsureFoldersExist();
+	lock.unlock();
 
 	if (VMManager::HasValidVM())
 	{
-		if (EmuFolders::Cheats != old_cheats_directory || EmuFolders::Patches != old_patches_directory)
+		const bool game_settings_folders_changed =
+			EmuFolders::GameSettings != old_game_settings_directory || EmuFolders::AdditionalContentFolders != old_additional_content_folders;
+		if (game_settings_folders_changed)
+		{
+			ReloadGameSettings();
+			Patch::ReloadPatches(s_disc_serial, s_current_crc, true, false, true, true);
+		}
+		else if (EmuFolders::Cheats != old_cheats_directory || EmuFolders::Patches != old_patches_directory)
 			Patch::ReloadPatches(s_disc_serial, s_current_crc, true, false, true, true);
 
 		if (EmuFolders::MemoryCards != old_memcards_directory)

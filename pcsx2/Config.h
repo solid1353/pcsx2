@@ -1464,6 +1464,7 @@ namespace EmuFolders
 	extern std::string Textures;
 	extern std::string InputProfiles;
 	extern std::string InputRecordings;
+	extern std::vector<std::string> AdditionalContentFolders;
 	extern std::string Videos;
 	extern std::string DebuggerLayouts;
 	extern std::string DebuggerSettings;
@@ -1477,6 +1478,8 @@ namespace EmuFolders
 	void SetDefaults(SettingsInterface& si);
 	void LoadConfig(SettingsInterface& si);
 	bool EnsureFoldersExist();
+	std::vector<std::string> GetContentSearchFolders(const std::string& primary_folder);
+	std::string FindFileInContentFolders(const std::string& primary_folder, std::string_view relative_path);
 
 	/// Opens the specified log file for writing.
 	std::FILE* OpenLogFile(std::string_view name, const char* mode);

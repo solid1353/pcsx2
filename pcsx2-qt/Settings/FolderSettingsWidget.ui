@@ -302,6 +302,87 @@
     </widget>
    </item>
    <item>
+    <widget class="QGroupBox" name="additionalContentFoldersGroup">
+     <property name="title">
+      <string>Additional Content Folders</string>
+     </property>
+     <layout class="QVBoxLayout" name="additionalContentFoldersLayout">
+      <item>
+       <widget class="QLabel" name="additionalContentFoldersLabel">
+        <property name="text">
+         <string>Also searched, in order, for cheats, game settings, and input-recording playback. New game settings and recordings are still saved in their primary folders.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QListWidget" name="additionalContentFolders">
+        <property name="minimumSize">
+         <size>
+          <width>0</width>
+          <height>90</height>
+         </size>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="additionalContentFoldersButtons">
+        <item>
+         <widget class="QPushButton" name="additionalContentFolderAdd">
+          <property name="text">
+           <string>Add...</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="additionalContentFolderRemove">
+          <property name="text">
+           <string>Remove</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="additionalContentFolderOpen">
+          <property name="text">
+           <string>Open...</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="additionalContentFoldersButtonSpacer">
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QPushButton" name="additionalContentFolderUp">
+          <property name="text">
+           <string>Move Up</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="additionalContentFolderDown">
+          <property name="text">
+           <string>Move Down</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
     <spacer name="verticalSpacer">
      <property name="orientation">
       <enum>Qt::Orientation::Vertical</enum>
@@ -342,6 +423,12 @@
   <tabstop>videoDumpingDirectoryBrowse</tabstop>
   <tabstop>videoDumpingDirectoryOpen</tabstop>
   <tabstop>videoDumpingDirectoryReset</tabstop>
+  <tabstop>additionalContentFolders</tabstop>
+  <tabstop>additionalContentFolderAdd</tabstop>
+  <tabstop>additionalContentFolderRemove</tabstop>
+  <tabstop>additionalContentFolderOpen</tabstop>
+  <tabstop>additionalContentFolderUp</tabstop>
+  <tabstop>additionalContentFolderDown</tabstop>
  </tabstops>
  <resources>
   <include location="../resources/resources.qrc"/>

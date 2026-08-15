@@ -1425,6 +1425,85 @@ void FullscreenUI::DrawFolderSetting(SettingsInterface* bsi, const char* title, 
 	}
 }
 
+static void SaveAdditionalContentFolders(SettingsInterface* bsi, const std::vector<std::string>& folders)
+{
+	std::vector<std::string> stored_folders;
+	stored_folders.reserve(folders.size());
+	for (const std::string& folder : folders)
+		stored_folders.push_back(Path::MakeRelative(folder, EmuFolders::DataRoot));
+	bsi->SetStringList("Folders", "AdditionalContentFolders", stored_folders);
+	FullscreenUI::SetSettingsChanged(bsi);
+	Host::RunOnCPUThread(&VMManager::Internal::UpdateEmuFolders);
+}
+
+static void DrawAdditionalContentFoldersSetting(SettingsInterface* bsi)
+{
+	const std::vector<std::string> folders = EmuFolders::AdditionalContentFolders;
+	if (ImGuiFullscreen::MenuButtonWithValue(FSUI_ICONSTR(ICON_FA_FOLDER_PLUS, "Add Additional Content Folder"),
+			FSUI_CSTR("Adds a folder searched for cheats, game settings, and input-recording playback."),
+			folders.empty() ? FSUI_CSTR("None configured") : fmt::format(FSUI_FSTR("{} configured"), folders.size()).c_str(), true))
+	{
+		ImGuiFullscreen::OpenFileSelector(FSUI_CSTR("Select Additional Content Folder"), true,
+			[bsi](const std::string& directory) {
+				if (directory.empty())
+					return;
+				std::vector<std::string> folders = EmuFolders::AdditionalContentFolders;
+				const std::string canonical_directory = Path::Canonicalize(directory);
+				const bool duplicate = std::any_of(folders.begin(), folders.end(), [&canonical_directory](const std::string& existing) {
+#ifdef _WIN32
+					return StringUtil::Strcasecmp(existing.c_str(), canonical_directory.c_str()) == 0;
+#else
+					return existing == canonical_directory;
+#endif
+				});
+				if (!duplicate)
+				{
+					auto lock = Host::GetSettingsLock();
+					folders.push_back(canonical_directory);
+					SaveAdditionalContentFolders(bsi, folders);
+				}
+				ImGuiFullscreen::CloseFileSelector();
+			});
+	}
+
+	for (size_t i = 0; i < folders.size(); i++)
+	{
+		const std::string title = fmt::format(FSUI_FSTR("Additional Content Folder {}"), i + 1);
+		if (!ImGuiFullscreen::MenuButton(title.c_str(), folders[i].c_str()))
+			continue;
+
+		ImGuiFullscreen::ChoiceDialogOptions options;
+		if (i > 0)
+			options.emplace_back(FSUI_STR("Move Up"), false);
+		if (i + 1 < folders.size())
+			options.emplace_back(FSUI_STR("Move Down"), false);
+		options.emplace_back(FSUI_STR("Remove"), false);
+		ImGuiFullscreen::OpenChoiceDialog(title.c_str(), false, std::move(options), [bsi, i](s32 index, const std::string& action, bool checked) {
+			if (index < 0)
+			{
+				ImGuiFullscreen::CloseChoiceDialog();
+				return;
+			}
+
+			auto lock = Host::GetSettingsLock();
+			std::vector<std::string> folders = EmuFolders::AdditionalContentFolders;
+			if (i >= folders.size())
+			{
+				ImGuiFullscreen::CloseChoiceDialog();
+				return;
+			}
+			if (action == FSUI_STR("Move Up") && i > 0)
+				std::swap(folders[i], folders[i - 1]);
+			else if (action == FSUI_STR("Move Down") && i + 1 < folders.size())
+				std::swap(folders[i], folders[i + 1]);
+			else if (action == FSUI_STR("Remove"))
+				folders.erase(folders.begin() + i);
+			SaveAdditionalContentFolders(bsi, folders);
+			ImGuiFullscreen::CloseChoiceDialog();
+		});
+	}
+}
+
 void FullscreenUI::DrawPathSetting(SettingsInterface* bsi, const char* title, const char* section, const char* key,
 	const char* default_value, bool enabled /* = true */, float height /* = ImGuiFullscreen::LAYOUT_MENU_BUTTON_HEIGHT */,
 	std::pair<ImFont*, float> font /* = g_large_font */, std::pair<ImFont*, float> summary_font /* = g_medium_font */)
@@ -5507,6 +5586,9 @@ void FullscreenUI::DrawFoldersSettingsPage()
 	DrawFolderSetting(bsi, FSUI_ICONSTR(ICON_FA_BANDAGE, "Patches Directory"), "Folders", "Patches", EmuFolders::Patches);
 	DrawFolderSetting(bsi, FSUI_ICONSTR(ICON_FA_SHIRT, "Texture Replacements Directory"), "Folders", "Textures", EmuFolders::Textures);
 	DrawFolderSetting(bsi, FSUI_ICONSTR(ICON_FA_VIDEO, "Video Recording Directory"), "Folders", "Videos", EmuFolders::Videos);
+
+	MenuHeading(FSUI_CSTR("Additional Content"));
+	DrawAdditionalContentFoldersSetting(bsi);
 
 	MenuHeading(FSUI_CSTR("Organization"));
 	DrawToggleSetting(bsi, FSUI_ICONSTR(ICON_FA_FOLDER_OPEN, "Save Snapshots in Game-Specific Folders"),

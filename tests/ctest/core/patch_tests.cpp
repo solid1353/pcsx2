@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Patch.h"
+#include "VMManager.h"
+
+#include "common/Path.h"
 
 #include "MockMemoryInterface.h"
 
@@ -10,6 +13,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <tuple>
 
 // Create a test that makes sure applying a given list of patch commands results
 // in a certain sequence of memory reads/writes.
@@ -114,18 +118,21 @@ TEST(Patch, CustomPnachReplacesAutomaticPnachLoading)
 	ASSERT_TRUE(std::filesystem::create_directory(test_directory));
 
 	const std::string old_cheats_directory = EmuFolders::Cheats;
+	const std::vector<std::string> old_additional_content_folders = EmuFolders::AdditionalContentFolders;
 	struct Cleanup
 	{
 		std::filesystem::path directory;
 		std::string cheats_directory;
+		std::vector<std::string> additional_content_folders;
 		~Cleanup()
 		{
 			Patch::ClearPnachOverridePath();
 			EmuFolders::Cheats = std::move(cheats_directory);
+			EmuFolders::AdditionalContentFolders = std::move(additional_content_folders);
 			std::error_code error;
 			std::filesystem::remove_all(directory, error);
 		}
-	} cleanup{test_directory, old_cheats_directory};
+	} cleanup{test_directory, old_cheats_directory, old_additional_content_folders};
 
 	const std::filesystem::path automatic_path = test_directory / "SLUS-00000_12345678.pnach";
 	const std::filesystem::path custom_path = test_directory / "arbitrary custom file.txt";
@@ -139,6 +146,7 @@ TEST(Patch, CustomPnachReplacesAutomaticPnachLoading)
 	ASSERT_TRUE(std::filesystem::is_regular_file(custom_path));
 
 	EmuFolders::Cheats = test_directory.string();
+	EmuFolders::AdditionalContentFolders.clear();
 	std::vector<Patch::PatchInfo> info = Patch::GetPatchInfo("SLUS-00000", 0x12345678, true, false, nullptr);
 	ASSERT_EQ(info.size(), 1u);
 	EXPECT_EQ(info[0].name, "Automatic");
@@ -154,6 +162,119 @@ TEST(Patch, CustomPnachReplacesAutomaticPnachLoading)
 	EXPECT_EQ(info[0].name, "Custom\\Always");
 	EXPECT_EQ(info[0].activation_mode, Patch::PatchActivationMode::ForcedEnabled);
 	EXPECT_TRUE(Patch::GetPatchInfo("SLUS-00000", 0x12345678, false, false, nullptr).empty());
+}
+
+TEST(Patch, DiscoversCheatsInOrderedAdditionalContentFolders)
+{
+	const std::filesystem::path test_directory = std::filesystem::current_path() /
+	                                             ("patch-content-folders-test-" +
+													 std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+	const std::filesystem::path primary_directory = test_directory / "primary";
+	const std::filesystem::path first_directory = test_directory / "first";
+	const std::filesystem::path second_directory = test_directory / "second";
+	ASSERT_TRUE(std::filesystem::create_directories(primary_directory));
+	ASSERT_TRUE(std::filesystem::create_directories(first_directory));
+	ASSERT_TRUE(std::filesystem::create_directories(second_directory));
+
+	const std::string old_cheats_directory = EmuFolders::Cheats;
+	const std::vector<std::string> old_additional_content_folders = EmuFolders::AdditionalContentFolders;
+	struct Cleanup
+	{
+		std::filesystem::path directory;
+		std::string cheats_directory;
+		std::vector<std::string> additional_content_folders;
+		~Cleanup()
+		{
+			EmuFolders::Cheats = std::move(cheats_directory);
+			EmuFolders::AdditionalContentFolders = std::move(additional_content_folders);
+			std::error_code error;
+			std::filesystem::remove_all(directory, error);
+		}
+	} cleanup{test_directory, old_cheats_directory, old_additional_content_folders};
+
+	for (const auto& [directory, name, address] :
+		{std::tuple{primary_directory, "Primary", "00100000"}, std::tuple{first_directory, "First", "00100004"},
+			std::tuple{second_directory, "Second", "00100008"}})
+	{
+		std::ofstream file(directory / "SLUS-00001_12345678.pnach");
+		file << '[' << name << "]\npatch=1,EE," << address << ",word,00000001\n";
+	}
+
+	EmuFolders::Cheats = primary_directory.string();
+	EmuFolders::AdditionalContentFolders = {first_directory.string(), second_directory.string(), first_directory.string()};
+	const std::vector<std::string> search_folders = EmuFolders::GetContentSearchFolders(EmuFolders::Cheats);
+	ASSERT_EQ(search_folders.size(), 3u);
+	EXPECT_EQ(search_folders[0], primary_directory.string());
+	EXPECT_EQ(search_folders[1], first_directory.string());
+	EXPECT_EQ(search_folders[2], second_directory.string());
+
+	const std::vector<Patch::PatchInfo> info = Patch::GetPatchInfo("SLUS-00001", 0x12345678, true, false, nullptr);
+	ASSERT_EQ(info.size(), 3u);
+	EXPECT_EQ(info[0].name, "Primary");
+	EXPECT_EQ(info[1].name, "First");
+	EXPECT_EQ(info[2].name, "Second");
+}
+
+TEST(Patch, ResolvesGameSettingsAndRecordingPlaybackAcrossContentFolders)
+{
+	const std::filesystem::path test_directory = std::filesystem::current_path() /
+	                                             ("shared-content-folders-test-" +
+													 std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+	const std::filesystem::path primary_directory = test_directory / "primary";
+	const std::filesystem::path first_directory = test_directory / "first";
+	const std::filesystem::path second_directory = test_directory / "second";
+	ASSERT_TRUE(std::filesystem::create_directories(primary_directory));
+	ASSERT_TRUE(std::filesystem::create_directories(first_directory));
+	ASSERT_TRUE(std::filesystem::create_directories(second_directory / "nested"));
+
+	const std::string old_game_settings_directory = EmuFolders::GameSettings;
+	const std::string old_input_recordings_directory = EmuFolders::InputRecordings;
+	const std::vector<std::string> old_additional_content_folders = EmuFolders::AdditionalContentFolders;
+	struct Cleanup
+	{
+		std::filesystem::path directory;
+		std::string game_settings_directory;
+		std::string input_recordings_directory;
+		std::vector<std::string> additional_content_folders;
+		~Cleanup()
+		{
+			EmuFolders::GameSettings = std::move(game_settings_directory);
+			EmuFolders::InputRecordings = std::move(input_recordings_directory);
+			EmuFolders::AdditionalContentFolders = std::move(additional_content_folders);
+			std::error_code error;
+			std::filesystem::remove_all(directory, error);
+		}
+	} cleanup{test_directory, old_game_settings_directory, old_input_recordings_directory, old_additional_content_folders};
+
+	const std::filesystem::path first_settings = first_directory / "SLUS-00002.ini";
+	const std::filesystem::path second_settings = second_directory / "nested" / "SLUS-00002_12345678.ini";
+	std::ofstream(first_settings) << "[EmuCore]\nEnableCheats = true\n";
+	std::ofstream(second_settings) << "[EmuCore]\nEnableCheats = false\n";
+	const std::filesystem::path first_recording = first_directory / "replay.p2m2";
+	const std::filesystem::path second_recording = second_directory / "replay.p2m2";
+	std::ofstream(first_recording) << "first";
+	std::ofstream(second_recording) << "second";
+
+	EmuFolders::GameSettings = primary_directory.string();
+	EmuFolders::InputRecordings = primary_directory.string();
+	EmuFolders::AdditionalContentFolders = {first_directory.string(), second_directory.string()};
+	EXPECT_EQ(VMManager::GetGameSettingsPath("SLUS-00002", 0x12345678), first_settings.string());
+	EXPECT_EQ(EmuFolders::FindFileInContentFolders(EmuFolders::InputRecordings, "replay.p2m2"), first_recording.string());
+
+	const std::filesystem::path primary_settings = primary_directory / "SLUS-00002_12345678.ini";
+	const std::filesystem::path primary_recording = primary_directory / "replay.p2m2";
+	std::ofstream(primary_settings) << "[EmuCore]\nEnableCheats = true\n";
+	std::ofstream(primary_recording) << "primary";
+	EXPECT_EQ(VMManager::GetGameSettingsPath("SLUS-00002", 0x12345678), primary_settings.string());
+	EXPECT_EQ(EmuFolders::FindFileInContentFolders(EmuFolders::InputRecordings, "replay.p2m2"), primary_recording.string());
+
+	std::filesystem::remove(primary_settings);
+	std::filesystem::remove(first_settings);
+	EXPECT_EQ(VMManager::GetGameSettingsPath("SLUS-00002", 0x12345678), second_settings.string());
+	std::filesystem::remove(second_settings);
+	EXPECT_EQ(VMManager::GetGameSettingsPath("SLUS-00002", 0x12345678), primary_settings.string());
+	EXPECT_EQ(EmuFolders::FindFileInContentFolders(EmuFolders::InputRecordings, "missing.p2m2"),
+		Path::Combine(EmuFolders::InputRecordings, "missing.p2m2"));
 }
 
 TEST(Patch, ValidatesAndPreservesCommandLinePnachLines)

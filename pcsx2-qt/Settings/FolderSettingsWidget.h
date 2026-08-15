@@ -16,5 +16,12 @@ public:
 	~FolderSettingsWidget();
 
 private:
+	void addAdditionalContentFolder();
+	void removeAdditionalContentFolder();
+	void openAdditionalContentFolder();
+	void moveAdditionalContentFolder(int direction);
+	void saveAdditionalContentFolders();
+	void updateAdditionalContentFolderButtons();
+
 	Ui::FolderSettingsWidget m_ui;
 };

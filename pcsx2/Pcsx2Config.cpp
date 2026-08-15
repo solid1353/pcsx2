@@ -169,6 +169,7 @@ namespace EmuFolders
 	std::string Textures;
 	std::string InputProfiles;
 	std::string InputRecordings;
+	std::vector<std::string> AdditionalContentFolders;
 	std::string Videos;
 
 	static bool ShouldUsePortableMode();
@@ -2312,6 +2313,15 @@ static std::string LoadPathFromSettings(SettingsInterface& si, const std::string
 	return value;
 }
 
+static bool PathsEqual(const std::string& lhs, const std::string& rhs)
+{
+#ifdef _WIN32
+	return StringUtil::Strcasecmp(lhs.c_str(), rhs.c_str()) == 0;
+#else
+	return lhs == rhs;
+#endif
+}
+
 void EmuFolders::LoadConfig(SettingsInterface& si)
 {
 	Bios = LoadPathFromSettings(si, DataRoot, "Bios", "bios");
@@ -2328,6 +2338,21 @@ void EmuFolders::LoadConfig(SettingsInterface& si)
 	Textures = LoadPathFromSettings(si, DataRoot, "Textures", "textures");
 	InputProfiles = LoadPathFromSettings(si, DataRoot, "InputProfiles", "inputprofiles");
 	InputRecordings = LoadPathFromSettings(si, DataRoot, "InputRecordings", "inputrecordings");
+	AdditionalContentFolders.clear();
+	for (std::string path : si.GetStringList("Folders", "AdditionalContentFolders"))
+	{
+		if (path.empty())
+			continue;
+		if (!Path::IsAbsolute(path))
+			path = Path::Combine(DataRoot, path);
+		path = Path::Canonicalize(path);
+		if (std::none_of(AdditionalContentFolders.begin(), AdditionalContentFolders.end(), [&path](const std::string& existing) {
+				return PathsEqual(existing, path);
+			}))
+		{
+			AdditionalContentFolders.push_back(std::move(path));
+		}
+	}
 	Videos = LoadPathFromSettings(si, DataRoot, "Videos", "videos");
 	DebuggerLayouts = LoadPathFromSettings(si, Settings, "DebuggerLayouts", "debuggerlayouts");
 	DebuggerSettings = LoadPathFromSettings(si, Settings, "DebuggerSettings", "debuggersettings");
@@ -2347,6 +2372,8 @@ void EmuFolders::LoadConfig(SettingsInterface& si)
 	Console.WriteLn("Textures Directory: %s", Textures.c_str());
 	Console.WriteLn("Input Profile Directory: %s", InputProfiles.c_str());
 	Console.WriteLn("Input Recordings Directory: %s", InputRecordings.c_str());
+	for (const std::string& path : AdditionalContentFolders)
+		Console.WriteLn("Additional Content Directory: %s", path.c_str());
 	Console.WriteLn("Video Dumping Directory: %s", Videos.c_str());
 	Console.WriteLn("Debugger Layouts Directory: %s", DebuggerLayouts.c_str());
 	Console.WriteLn("Debugger Settings Directory: %s", DebuggerSettings.c_str());
@@ -2373,6 +2400,34 @@ bool EmuFolders::EnsureFoldersExist()
 	result = FileSystem::CreateDirectoryPath(DebuggerLayouts.c_str(), false) && result;
 	result = FileSystem::CreateDirectoryPath(DebuggerSettings.c_str(), false) && result;
 	return result;
+}
+
+std::vector<std::string> EmuFolders::GetContentSearchFolders(const std::string& primary_folder)
+{
+	std::vector<std::string> folders;
+	folders.reserve(AdditionalContentFolders.size() + 1);
+	folders.push_back(primary_folder);
+	for (const std::string& path : AdditionalContentFolders)
+	{
+		if (std::none_of(folders.begin(), folders.end(), [&path](const std::string& existing) {
+				return PathsEqual(existing, path);
+			}))
+		{
+			folders.push_back(path);
+		}
+	}
+	return folders;
+}
+
+std::string EmuFolders::FindFileInContentFolders(const std::string& primary_folder, const std::string_view relative_path)
+{
+	for (const std::string& folder : GetContentSearchFolders(primary_folder))
+	{
+		std::string path = Path::Combine(folder, relative_path);
+		if (FileSystem::FileExists(path.c_str()))
+			return path;
+	}
+	return Path::Combine(primary_folder, relative_path);
 }
 
 std::FILE* EmuFolders::OpenLogFile(std::string_view name, const char* mode)

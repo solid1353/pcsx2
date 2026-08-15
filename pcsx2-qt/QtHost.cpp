@@ -254,8 +254,12 @@ void EmuThread::startVM(std::shared_ptr<VMBootParameters> boot_params)
 		});
 	};
 
-	const std::string input_recording = boot_params->input_recording.empty() ? std::string() :
-	                                                                           Path::Combine(EmuFolders::InputRecordings, boot_params->input_recording);
+	std::string input_recording;
+	if (!boot_params->input_recording.empty())
+	{
+		input_recording = boot_params->create_input_recording ? Path::Combine(EmuFolders::InputRecordings, boot_params->input_recording) :
+		                                                        EmuFolders::FindFileInContentFolders(EmuFolders::InputRecordings, boot_params->input_recording);
+	}
 	const std::string input_recording_capture_directory = boot_params->input_recording_capture_directory;
 	const bool create_input_recording = boot_params->create_input_recording;
 	auto done_callback = [input_recording, input_recording_capture_directory, create_input_recording](VMBootResult result, const Error& error) {
@@ -2231,7 +2235,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -slowboot: Force slow boot for provided filename.\n");
 	std::fprintf(stderr, "  -state <index>: Loads specified save state by index.\n");
 	std::fprintf(stderr, "  -statefile <filename>: Loads state from the specified filename.\n");
-	std::fprintf(stderr, "  -input-recording <filename>: Replays a power-on recording from the InputRecordings folder and captures L3+R3 markers.\n");
+	std::fprintf(stderr, "  -input-recording <filename>: Replays a power-on recording from the configured content folders and captures L3+R3 markers.\n");
 	std::fprintf(stderr, "  -input-recording-capture-directory <path>: Saves replay marker savestates and screenshots to path.\n");
 	std::fprintf(stderr, "  -input-recording-create <filename>: Creates and starts a power-on recording in the InputRecordings folder.\n");
 	std::fprintf(stderr, "  -fullscreen: Enters fullscreen mode immediately after starting.\n");
@@ -2438,7 +2442,7 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 					!Path::IsValidFileName(filename, true) || filename.find("..") != std::string::npos)
 				{
 					QMessageBox::critical(nullptr, QStringLiteral("Error"),
-						QStringLiteral("Input recording must be a relative path inside the InputRecordings folder configured in PCSX2.ini."));
+						QStringLiteral("Input recording must be a relative path inside a configured input-recording content folder."));
 					return false;
 				}
 				AutoBoot(autoboot)->input_recording = filename;
