@@ -1482,8 +1482,9 @@ namespace EmuFolders
 	bool EnsureFoldersExist();
 	std::string GetContentAlias(std::string_view serial, u32 crc);
 	std::vector<std::string> GetContentSearchFolders(const std::string& primary_folder);
-	std::string FindFileInContentFolders(const std::string& primary_folder, std::string_view relative_path);
 	std::string FindPathInContentFolders(const std::string& primary_folder, std::string_view relative_path);
+	bool IsInputRecordingPathValid(std::string_view path);
+	std::string ResolveInputRecordingPath(std::string_view path);
 
 	/// Opens the specified log file for writing.
 	std::FILE* OpenLogFile(std::string_view name, const char* mode);

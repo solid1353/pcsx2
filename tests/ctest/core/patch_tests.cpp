@@ -286,7 +286,7 @@ TEST(Patch, ResolvesCheatsAndGameSettingsByConfiguredContentAlias)
 		(primary_directory / "NUN5.ini").string());
 }
 
-TEST(Patch, ResolvesGameSettingsAndRecordingPlaybackAcrossContentFolders)
+TEST(Patch, ResolvesGameSettingsAcrossContentFolders)
 {
 	const std::filesystem::path test_directory = std::filesystem::current_path() /
 	                                             ("shared-content-folders-test-" +
@@ -299,53 +299,79 @@ TEST(Patch, ResolvesGameSettingsAndRecordingPlaybackAcrossContentFolders)
 	ASSERT_TRUE(std::filesystem::create_directories(second_directory / "nested"));
 
 	const std::string old_game_settings_directory = EmuFolders::GameSettings;
-	const std::string old_input_recordings_directory = EmuFolders::InputRecordings;
 	const std::vector<std::string> old_additional_content_folders = EmuFolders::AdditionalContentFolders;
 	struct Cleanup
 	{
 		std::filesystem::path directory;
 		std::string game_settings_directory;
-		std::string input_recordings_directory;
 		std::vector<std::string> additional_content_folders;
 		~Cleanup()
 		{
 			EmuFolders::GameSettings = std::move(game_settings_directory);
-			EmuFolders::InputRecordings = std::move(input_recordings_directory);
 			EmuFolders::AdditionalContentFolders = std::move(additional_content_folders);
 			std::error_code error;
 			std::filesystem::remove_all(directory, error);
 		}
-	} cleanup{test_directory, old_game_settings_directory, old_input_recordings_directory, old_additional_content_folders};
+	} cleanup{test_directory, old_game_settings_directory, old_additional_content_folders};
 
 	const std::filesystem::path first_settings = first_directory / "SLUS-00002.ini";
 	const std::filesystem::path second_settings = second_directory / "nested" / "SLUS-00002_12345678.ini";
 	std::ofstream(first_settings) << "[EmuCore]\nEnableCheats = true\n";
 	std::ofstream(second_settings) << "[EmuCore]\nEnableCheats = false\n";
-	const std::filesystem::path first_recording = first_directory / "replay.p2m2";
-	const std::filesystem::path second_recording = second_directory / "replay.p2m2";
-	std::ofstream(first_recording) << "first";
-	std::ofstream(second_recording) << "second";
-
 	EmuFolders::GameSettings = primary_directory.string();
-	EmuFolders::InputRecordings = primary_directory.string();
 	EmuFolders::AdditionalContentFolders = {first_directory.string(), second_directory.string()};
 	EXPECT_EQ(VMManager::GetGameSettingsPath("SLUS-00002", 0x12345678), first_settings.string());
-	EXPECT_EQ(EmuFolders::FindFileInContentFolders(EmuFolders::InputRecordings, "replay.p2m2"), first_recording.string());
 
 	const std::filesystem::path primary_settings = primary_directory / "SLUS-00002_12345678.ini";
-	const std::filesystem::path primary_recording = primary_directory / "replay.p2m2";
 	std::ofstream(primary_settings) << "[EmuCore]\nEnableCheats = true\n";
-	std::ofstream(primary_recording) << "primary";
 	EXPECT_EQ(VMManager::GetGameSettingsPath("SLUS-00002", 0x12345678), primary_settings.string());
-	EXPECT_EQ(EmuFolders::FindFileInContentFolders(EmuFolders::InputRecordings, "replay.p2m2"), primary_recording.string());
 
 	std::filesystem::remove(primary_settings);
 	std::filesystem::remove(first_settings);
 	EXPECT_EQ(VMManager::GetGameSettingsPath("SLUS-00002", 0x12345678), second_settings.string());
 	std::filesystem::remove(second_settings);
 	EXPECT_EQ(VMManager::GetGameSettingsPath("SLUS-00002", 0x12345678), primary_settings.string());
-	EXPECT_EQ(EmuFolders::FindFileInContentFolders(EmuFolders::InputRecordings, "missing.p2m2"),
-		Path::Combine(EmuFolders::InputRecordings, "missing.p2m2"));
+}
+
+TEST(InputRecordingPath, PreservesAbsolutePlaybackAndCreationPaths)
+{
+	const std::filesystem::path test_directory = std::filesystem::current_path() / "input-recording-path-test";
+	const std::string playback_path = (test_directory / "playback.p2m2").string();
+	const std::string creation_path = (test_directory / "creation.p2m2").string();
+
+	ASSERT_TRUE(Path::IsAbsolute(playback_path));
+	ASSERT_TRUE(Path::IsAbsolute(creation_path));
+	EXPECT_TRUE(EmuFolders::IsInputRecordingPathValid(playback_path));
+	EXPECT_TRUE(EmuFolders::IsInputRecordingPathValid(creation_path));
+	EXPECT_EQ(EmuFolders::ResolveInputRecordingPath(playback_path), playback_path);
+	EXPECT_EQ(EmuFolders::ResolveInputRecordingPath(creation_path), creation_path);
+}
+
+TEST(InputRecordingPath, ResolvesRelativePathsOnlyUnderPrimaryFolder)
+{
+	const std::string old_input_recordings_directory = EmuFolders::InputRecordings;
+	const std::vector<std::string> old_additional_content_folders = EmuFolders::AdditionalContentFolders;
+	struct Cleanup
+	{
+		std::string input_recordings_directory;
+		std::vector<std::string> additional_content_folders;
+		~Cleanup()
+		{
+			EmuFolders::InputRecordings = std::move(input_recordings_directory);
+			EmuFolders::AdditionalContentFolders = std::move(additional_content_folders);
+		}
+	} cleanup{old_input_recordings_directory, old_additional_content_folders};
+
+	const std::filesystem::path primary_directory = std::filesystem::current_path() / "recordings-primary";
+	const std::filesystem::path additional_directory = std::filesystem::current_path() / "recordings-additional";
+	const std::string relative_path = Path::Combine("nested", "recording.p2m2");
+	EmuFolders::InputRecordings = primary_directory.string();
+	EmuFolders::AdditionalContentFolders = {additional_directory.string()};
+
+	EXPECT_TRUE(EmuFolders::IsInputRecordingPathValid(relative_path));
+	EXPECT_EQ(EmuFolders::ResolveInputRecordingPath(relative_path),
+		Path::Combine(EmuFolders::InputRecordings, relative_path));
+	EXPECT_FALSE(EmuFolders::IsInputRecordingPathValid(Path::Combine("..", "outside.p2m2")));
 }
 
 TEST(MemoryCard, ResolvesAndManagesCardsAcrossContentFolders)

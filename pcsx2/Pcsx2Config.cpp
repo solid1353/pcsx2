@@ -2461,17 +2461,6 @@ std::vector<std::string> EmuFolders::GetContentSearchFolders(const std::string& 
 	return folders;
 }
 
-std::string EmuFolders::FindFileInContentFolders(const std::string& primary_folder, const std::string_view relative_path)
-{
-	for (const std::string& folder : GetContentSearchFolders(primary_folder))
-	{
-		std::string path = Path::Combine(folder, relative_path);
-		if (FileSystem::FileExists(path.c_str()))
-			return path;
-	}
-	return Path::Combine(primary_folder, relative_path);
-}
-
 std::string EmuFolders::FindPathInContentFolders(const std::string& primary_folder, const std::string_view relative_path)
 {
 	for (const std::string& folder : GetContentSearchFolders(primary_folder))
@@ -2481,6 +2470,17 @@ std::string EmuFolders::FindPathInContentFolders(const std::string& primary_fold
 			return path;
 	}
 	return Path::Combine(primary_folder, relative_path);
+}
+
+bool EmuFolders::IsInputRecordingPathValid(const std::string_view path)
+{
+	return !path.empty() && (Path::IsAbsolute(path) ||
+								(Path::IsValidFileName(path, true) && path.find("..") == std::string_view::npos));
+}
+
+std::string EmuFolders::ResolveInputRecordingPath(const std::string_view path)
+{
+	return Path::IsAbsolute(path) ? std::string(path) : Path::Combine(InputRecordings, path);
 }
 
 std::FILE* EmuFolders::OpenLogFile(std::string_view name, const char* mode)
