@@ -636,8 +636,6 @@ void VMManager::LoadSettings()
 	std::unique_lock<std::mutex> lock = Host::GetSettingsLock();
 	SettingsInterface* si = Host::GetSettingsInterface();
 	LoadCoreSettings(*si);
-	if (s_output_muted_override)
-		EmuConfig.SPU2.OutputMuted = true;
 	Pad::LoadConfig(*si);
 	Host::LoadSettings(*si, lock);
 	InputManager::ReloadSources(*si, lock);
@@ -679,6 +677,8 @@ void VMManager::LoadCoreSettings(SettingsInterface& si)
 {
 	SettingsLoadWrapper slw(si);
 	EmuConfig.LoadSave(slw);
+	if (s_output_muted_override)
+		EmuConfig.SPU2.OutputMuted = true;
 	if (s_pine_port_override.has_value())
 		EmuConfig.PINESlot = *s_pine_port_override;
 	if (s_memory_card_override.has_value())
