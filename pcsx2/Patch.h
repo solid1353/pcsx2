@@ -134,11 +134,25 @@ namespace Patch
 		std::vector<DynamicPatchEntry> replacement;
 	};
 
+	enum class PatchActivationMode : u8
+	{
+		GameSettings,
+		ForcedEnabled,
+		ForcedDisabled,
+	};
+
+	struct ParsedPatchSection
+	{
+		std::string_view name;
+		PatchActivationMode activation_mode;
+	};
+
 	struct PatchInfo
 	{
 		std::string name;
 		std::string description;
 		std::string author;
+		PatchActivationMode activation_mode = PatchActivationMode::GameSettings;
 
 		// This is only populated if all the patch lines in a given group have
 		// the same place value.
@@ -147,6 +161,11 @@ namespace Patch
 		std::string_view GetNamePart() const;
 		std::string_view GetNameParentPart() const;
 	};
+
+	/// Parses a PNACH section name, recognizing cheat-only activation markers.
+	extern ParsedPatchSection ParsePatchSectionName(std::string_view name, bool cheats);
+	extern bool IsPatchEnabled(PatchActivationMode activation_mode, bool enabled_in_settings);
+	extern bool IsPatchToggleable(PatchActivationMode activation_mode);
 
 	// Config sections/keys to use to enable patches.
 	extern const char* PATCHES_CONFIG_SECTION;

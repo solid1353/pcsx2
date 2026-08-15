@@ -87,7 +87,7 @@ void GameCheatSettingsWidget::onCheatListItemDoubleClicked(const QModelIndex& in
 	}
 
 	QVariant data = item->data(NAME_ROLE);
-	if (!data.isValid())
+	if (!data.isValid() || !item->isCheckable())
 		return;
 
 	std::string cheat_name = data.toString().toStdString();
@@ -99,7 +99,7 @@ void GameCheatSettingsWidget::onCheatListItemDoubleClicked(const QModelIndex& in
 void GameCheatSettingsWidget::onCheatListItemChanged(QStandardItem* item)
 {
 	QVariant data = item->data(NAME_ROLE);
-	if (!data.isValid())
+	if (!data.isValid() || !item->isCheckable())
 		return;
 
 	std::string cheat_name = data.toString().toStdString();
@@ -117,7 +117,7 @@ void GameCheatSettingsWidget::onCheatListItemHovered(const QModelIndex& index)
 	const QModelIndex source_index = m_model_proxy->mapToSource(index);
 	const QModelIndex sibling_index = source_index.siblingAtColumn(0);
 	QStandardItem* item = m_model->itemFromIndex(sibling_index);
-	if (!item || !item->isCheckable())
+	if (!item || !item->data(NAME_ROLE).isValid())
 	{
 		m_ui.appliedLabel->clear();
 		return;
@@ -239,7 +239,7 @@ void GameCheatSettingsWidget::setStateRecursively(QStandardItem* parent, bool en
 	{
 		QStandardItem* item = parent ? parent->child(i, 0) : m_model->item(i, 0);
 		QVariant data = item->data(NAME_ROLE);
-		if (data.isValid())
+		if (data.isValid() && item->isCheckable())
 		{
 			if ((item->checkState() == Qt::Checked) != enabled)
 			{
@@ -268,8 +268,9 @@ void GameCheatSettingsWidget::reloadList()
 
 	for (const Patch::PatchInfo& pi : m_patches)
 	{
-		const bool enabled =
+		const bool enabled_in_settings =
 			(std::find(m_enabled_patches.begin(), m_enabled_patches.end(), pi.name) != m_enabled_patches.end());
+		const bool enabled = Patch::IsPatchEnabled(pi.activation_mode, enabled_in_settings);
 
 		const std::string_view parent_part = pi.GetNameParentPart();
 		QStandardItem* parent = getTreeViewParent(parent_part);
@@ -328,9 +329,16 @@ QList<QStandardItem*> GameCheatSettingsWidget::populateTreeViewRow(const Patch::
 
 	QStandardItem* nameItem = new QStandardItem();
 	const std::string_view name_part = pi.GetNamePart();
-	nameItem->setFlags(Qt::ItemIsUserCheckable | Qt::ItemNeverHasChildren | Qt::ItemIsEnabled);
+	Qt::ItemFlags flags = Qt::ItemNeverHasChildren | Qt::ItemIsEnabled;
+	if (Patch::IsPatchToggleable(pi.activation_mode))
+		flags |= Qt::ItemIsUserCheckable;
+	nameItem->setFlags(flags);
 	nameItem->setCheckState(enabled ? Qt::Checked : Qt::Unchecked);
 	nameItem->setData(QString::fromStdString(pi.name), NAME_ROLE);
+	if (pi.activation_mode == Patch::PatchActivationMode::ForcedEnabled)
+		nameItem->setToolTip(tr("Forced enabled by the [+] PNACH section marker."));
+	else if (pi.activation_mode == Patch::PatchActivationMode::ForcedDisabled)
+		nameItem->setToolTip(tr("Forced disabled by the [-] PNACH section marker."));
 	if (pi.place.has_value())
 		nameItem->setData(static_cast<int>(*pi.place), PLACE_ROLE);
 	if (!name_part.empty())

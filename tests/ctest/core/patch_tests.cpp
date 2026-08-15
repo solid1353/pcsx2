@@ -47,6 +47,62 @@ static Patch::PatchCommand BuildPatchCommand(
 	return command;
 }
 
+TEST(Patch, ParsesCheatSectionActivationMarkers)
+{
+	const Patch::ParsedPatchSection default_section = Patch::ParsePatchSectionName("Gameplay\\Difficulty", true);
+	EXPECT_EQ(default_section.name, "Gameplay\\Difficulty");
+	EXPECT_EQ(default_section.activation_mode, Patch::PatchActivationMode::GameSettings);
+
+	const Patch::ParsedPatchSection enabled_section = Patch::ParsePatchSectionName("+Gameplay\\Skip Intro", true);
+	EXPECT_EQ(enabled_section.name, "Gameplay\\Skip Intro");
+	EXPECT_EQ(enabled_section.activation_mode, Patch::PatchActivationMode::ForcedEnabled);
+
+	const Patch::ParsedPatchSection disabled_section = Patch::ParsePatchSectionName("-Gameplay\\Attract Mode", true);
+	EXPECT_EQ(disabled_section.name, "Gameplay\\Attract Mode");
+	EXPECT_EQ(disabled_section.activation_mode, Patch::PatchActivationMode::ForcedDisabled);
+}
+
+TEST(Patch, DoesNotParseActivationMarkersOutsideCheatsOrWithoutAName)
+{
+	const Patch::ParsedPatchSection patch_section = Patch::ParsePatchSectionName("+Widescreen 16:9", false);
+	EXPECT_EQ(patch_section.name, "+Widescreen 16:9");
+	EXPECT_EQ(patch_section.activation_mode, Patch::PatchActivationMode::GameSettings);
+
+	const Patch::ParsedPatchSection empty_enabled_section = Patch::ParsePatchSectionName("+", true);
+	EXPECT_EQ(empty_enabled_section.name, "+");
+	EXPECT_EQ(empty_enabled_section.activation_mode, Patch::PatchActivationMode::GameSettings);
+
+	const Patch::ParsedPatchSection empty_disabled_section = Patch::ParsePatchSectionName("-", true);
+	EXPECT_EQ(empty_disabled_section.name, "-");
+	EXPECT_EQ(empty_disabled_section.activation_mode, Patch::PatchActivationMode::GameSettings);
+}
+
+TEST(Patch, ResolvesActivationModeForRuntimeAndUI)
+{
+	EXPECT_FALSE(Patch::IsPatchEnabled(Patch::PatchActivationMode::GameSettings, false));
+	EXPECT_TRUE(Patch::IsPatchEnabled(Patch::PatchActivationMode::GameSettings, true));
+	EXPECT_TRUE(Patch::IsPatchEnabled(Patch::PatchActivationMode::ForcedEnabled, false));
+	EXPECT_TRUE(Patch::IsPatchEnabled(Patch::PatchActivationMode::ForcedEnabled, true));
+	EXPECT_FALSE(Patch::IsPatchEnabled(Patch::PatchActivationMode::ForcedDisabled, false));
+	EXPECT_FALSE(Patch::IsPatchEnabled(Patch::PatchActivationMode::ForcedDisabled, true));
+
+	EXPECT_TRUE(Patch::IsPatchToggleable(Patch::PatchActivationMode::GameSettings));
+	EXPECT_FALSE(Patch::IsPatchToggleable(Patch::PatchActivationMode::ForcedEnabled));
+	EXPECT_FALSE(Patch::IsPatchToggleable(Patch::PatchActivationMode::ForcedDisabled));
+}
+
+TEST(Patch, UsesCanonicalSectionNameForHierarchyAndSettings)
+{
+	const Patch::ParsedPatchSection section = Patch::ParsePatchSectionName("+Gameplay\\Skip Intro", true);
+	Patch::PatchInfo info;
+	info.name = section.name;
+	info.activation_mode = section.activation_mode;
+
+	EXPECT_EQ(info.name, "Gameplay\\Skip Intro");
+	EXPECT_EQ(info.GetNameParentPart(), "Gameplay");
+	EXPECT_EQ(info.GetNamePart(), "Skip Intro");
+}
+
 // *****************************************************************************
 // Writes
 // *****************************************************************************
