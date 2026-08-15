@@ -7,6 +7,10 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+
 // Create a test that makes sure applying a given list of patch commands results
 // in a certain sequence of memory reads/writes.
 #define PATCH_TEST(name, ...) \
@@ -101,6 +105,55 @@ TEST(Patch, UsesCanonicalSectionNameForHierarchyAndSettings)
 	EXPECT_EQ(info.name, "Gameplay\\Skip Intro");
 	EXPECT_EQ(info.GetNameParentPart(), "Gameplay");
 	EXPECT_EQ(info.GetNamePart(), "Skip Intro");
+}
+
+TEST(Patch, CustomPnachReplacesAutomaticPnachLoading)
+{
+	const std::filesystem::path test_directory = std::filesystem::current_path() /
+	                                             ("patch-pnach-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+	ASSERT_TRUE(std::filesystem::create_directory(test_directory));
+
+	const std::string old_cheats_directory = EmuFolders::Cheats;
+	struct Cleanup
+	{
+		std::filesystem::path directory;
+		std::string cheats_directory;
+		~Cleanup()
+		{
+			Patch::ClearPnachOverridePath();
+			EmuFolders::Cheats = std::move(cheats_directory);
+			std::error_code error;
+			std::filesystem::remove_all(directory, error);
+		}
+	} cleanup{test_directory, old_cheats_directory};
+
+	const std::filesystem::path automatic_path = test_directory / "SLUS-00000_12345678.pnach";
+	const std::filesystem::path custom_path = test_directory / "arbitrary custom file.txt";
+	{
+		std::ofstream automatic(automatic_path);
+		automatic << "[Automatic]\npatch=1,EE,00100000,word,00000001\n";
+		std::ofstream custom(custom_path);
+		custom << "[+Custom\\Always]\npatch=1,EE,00100004,word,00000002\n";
+	}
+	ASSERT_TRUE(std::filesystem::is_regular_file(automatic_path));
+	ASSERT_TRUE(std::filesystem::is_regular_file(custom_path));
+
+	EmuFolders::Cheats = test_directory.string();
+	std::vector<Patch::PatchInfo> info = Patch::GetPatchInfo("SLUS-00000", 0x12345678, true, false, nullptr);
+	ASSERT_EQ(info.size(), 1u);
+	EXPECT_EQ(info[0].name, "Automatic");
+
+	EXPECT_FALSE(Patch::SetPnachOverridePath((test_directory / "missing.pnach").string()));
+	ASSERT_TRUE(Patch::SetPnachOverridePath(custom_path.string()));
+	EXPECT_FALSE(Patch::SetPnachOverridePath(automatic_path.string()));
+	ASSERT_TRUE(Patch::GetPnachOverridePath().has_value());
+	EXPECT_EQ(*Patch::GetPnachOverridePath(), custom_path.string());
+
+	info = Patch::GetPatchInfo("SLUS-00000", 0x12345678, true, false, nullptr);
+	ASSERT_EQ(info.size(), 1u);
+	EXPECT_EQ(info[0].name, "Custom\\Always");
+	EXPECT_EQ(info[0].activation_mode, Patch::PatchActivationMode::ForcedEnabled);
+	EXPECT_TRUE(Patch::GetPatchInfo("SLUS-00000", 0x12345678, false, false, nullptr).empty());
 }
 
 // *****************************************************************************

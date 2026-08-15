@@ -138,6 +138,7 @@ namespace Patch
 	static std::vector<const PatchCommand*> s_active_patches;
 	static std::vector<DynamicPatch> s_active_gamedb_dynamic_patches;
 	static std::vector<DynamicPatch> s_active_pnach_dynamic_patches;
+	static std::optional<std::string> s_pnach_override_path;
 	static std::vector<std::string> s_enabled_cheats;
 	static std::vector<std::string> s_enabled_patches;
 	static std::vector<std::string> s_just_enabled_cheats;
@@ -441,6 +442,24 @@ bool Patch::ContainsPatchName(const std::vector<PatchInfo>& patches, const std::
 template <typename F>
 void Patch::EnumeratePnachFiles(const std::string_view serial, u32 crc, bool cheats, bool for_ui, const F& f)
 {
+	if (s_pnach_override_path.has_value())
+	{
+		// A custom PNACH is treated as a cheat file so it uses the same section
+		// activation rules and global cheat enable setting as normal cheat PNACHs.
+		if (!cheats)
+			return;
+
+		std::optional<std::string> contents = FileSystem::ReadFileToString(s_pnach_override_path->c_str());
+		if (!contents.has_value())
+		{
+			Console.Error("Patch: Failed to read custom PNACH file '%s'.", s_pnach_override_path->c_str());
+			return;
+		}
+
+		f(*s_pnach_override_path, std::move(contents.value()));
+		return;
+	}
+
 	// Prefer files on disk over the zip.
 	std::vector<std::string> disk_patch_files;
 	if (for_ui || !Achievements::IsHardcoreModeActive())
@@ -480,6 +499,25 @@ void Patch::EnumeratePnachFiles(const std::string_view serial, u32 crc, bool che
 	}
 	if (pnach_data.has_value())
 		f(std::move(zip_filename), std::move(pnach_data.value()));
+}
+
+bool Patch::SetPnachOverridePath(std::string path)
+{
+	if (s_pnach_override_path.has_value() || path.empty() || !FileSystem::FileExists(path.c_str()))
+		return false;
+
+	s_pnach_override_path = std::move(path);
+	return true;
+}
+
+void Patch::ClearPnachOverridePath()
+{
+	s_pnach_override_path.reset();
+}
+
+const std::optional<std::string>& Patch::GetPnachOverridePath()
+{
+	return s_pnach_override_path;
 }
 
 bool Patch::PatchStringHasUnlabelledPatch(const std::string& pnach_data)

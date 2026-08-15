@@ -173,6 +173,12 @@ namespace Patch
 	extern const char* PATCH_ENABLE_CONFIG_KEY;
 	extern const char* PATCH_DISABLE_CONFIG_KEY;
 
+	/// Sets a process-local PNACH path which replaces automatic PNACH discovery.
+	/// Returns false if the path is not a file or an override was already set.
+	extern bool SetPnachOverridePath(std::string path);
+	extern void ClearPnachOverridePath();
+	extern const std::optional<std::string>& GetPnachOverridePath();
+
 	extern std::vector<PatchInfo> GetPatchInfo(const std::string_view serial, u32 crc, bool cheats, bool showAllCRCS, u32* num_unlabelled_patches);
 
 	/// Returns the path to a new CRC-specific cheat/patch pnach for the specified serial and CRC.
