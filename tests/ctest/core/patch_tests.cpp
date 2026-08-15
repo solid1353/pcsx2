@@ -5,6 +5,7 @@
 #include "SIO/Memcard/MemoryCardFile.h"
 #include "VMManager.h"
 
+#include "common/MemorySettingsInterface.h"
 #include "common/Path.h"
 
 #include "MockMemoryInterface.h"
@@ -215,6 +216,74 @@ TEST(Patch, DiscoversCheatsInOrderedAdditionalContentFolders)
 	EXPECT_EQ(info[0].name, "Primary");
 	EXPECT_EQ(info[1].name, "First");
 	EXPECT_EQ(info[2].name, "Second");
+}
+
+TEST(Patch, ResolvesCheatsAndGameSettingsByConfiguredContentAlias)
+{
+	const std::filesystem::path test_directory = std::filesystem::current_path() /
+	                                             ("content-alias-test-" +
+													 std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+	const std::filesystem::path primary_directory = test_directory / "primary";
+	const std::filesystem::path additional_directory = test_directory / "additional";
+	const std::filesystem::path nested_directory = additional_directory / "NUN5";
+	ASSERT_TRUE(std::filesystem::create_directories(primary_directory));
+	ASSERT_TRUE(std::filesystem::create_directories(nested_directory));
+
+	const std::string old_cheats_directory = EmuFolders::Cheats;
+	const std::string old_game_settings_directory = EmuFolders::GameSettings;
+	const std::vector<std::string> old_additional_content_folders = EmuFolders::AdditionalContentFolders;
+	const std::vector<std::pair<std::string, std::string>> old_content_aliases = EmuFolders::ContentAliases;
+	struct Cleanup
+	{
+		std::filesystem::path directory;
+		std::string cheats_directory;
+		std::string game_settings_directory;
+		std::vector<std::string> additional_content_folders;
+		std::vector<std::pair<std::string, std::string>> content_aliases;
+		~Cleanup()
+		{
+			EmuFolders::Cheats = std::move(cheats_directory);
+			EmuFolders::GameSettings = std::move(game_settings_directory);
+			EmuFolders::AdditionalContentFolders = std::move(additional_content_folders);
+			EmuFolders::ContentAliases = std::move(content_aliases);
+			std::error_code error;
+			std::filesystem::remove_all(directory, error);
+		}
+	} cleanup{test_directory, old_cheats_directory, old_game_settings_directory,
+		old_additional_content_folders, old_content_aliases};
+
+	MemorySettingsInterface settings;
+	settings.SetStringValue("ContentAliases", "SLES-55605", "NUN5_Fallback");
+	settings.SetStringValue("ContentAliases", "SLES-55605_C071D4C1", "NUN5");
+	settings.SetStringValue("ContentAliases", "SLUS-INVALID", "../invalid");
+	EmuFolders::LoadContentAliases(settings);
+	EXPECT_EQ(EmuFolders::GetContentAlias("sles-55605", 0xC071D4C1), "NUN5");
+	EXPECT_EQ(EmuFolders::GetContentAlias("SLES-55605", 0x12345678), "NUN5_Fallback");
+	EXPECT_TRUE(EmuFolders::GetContentAlias("SLUS-INVALID", 0).empty());
+
+	const std::filesystem::path alias_cheat = nested_directory / "NUN5.pnach";
+	const std::filesystem::path serial_cheat = primary_directory / "SLES-55605_C071D4C1.pnach";
+	std::ofstream(alias_cheat) << "[Alias]\npatch=1,EE,00100000,word,00000001\n";
+	std::ofstream(serial_cheat) << "[Serial]\npatch=1,EE,00100004,word,00000002\n";
+	const std::filesystem::path alias_settings = nested_directory / "NUN5.ini";
+	const std::filesystem::path serial_settings = primary_directory / "SLES-55605_C071D4C1.ini";
+	std::ofstream(alias_settings) << "[EmuCore]\nEnableCheats = true\n";
+	std::ofstream(serial_settings) << "[EmuCore]\nEnableCheats = false\n";
+
+	EmuFolders::Cheats = primary_directory.string();
+	EmuFolders::GameSettings = primary_directory.string();
+	EmuFolders::AdditionalContentFolders = {additional_directory.string()};
+	const std::vector<Patch::PatchInfo> info = Patch::GetPatchInfo("SLES-55605", 0xC071D4C1, true, false, nullptr);
+	ASSERT_EQ(info.size(), 1u);
+	EXPECT_EQ(info[0].name, "Alias");
+	EXPECT_EQ(Patch::GetPnachFilename("SLES-55605", 0xC071D4C1, true),
+		(primary_directory / "NUN5.pnach").string());
+	EXPECT_EQ(VMManager::GetGameSettingsPath("SLES-55605", 0xC071D4C1), alias_settings.string());
+	EXPECT_TRUE(VMManager::GetGameSettingsSectionPrefix("SLES-55605", 0xC071D4C1).empty());
+
+	std::filesystem::remove(alias_settings);
+	EXPECT_EQ(VMManager::GetGameSettingsPath("SLES-55605", 0xC071D4C1),
+		(primary_directory / "NUN5.ini").string());
 }
 
 TEST(Patch, ResolvesGameSettingsAndRecordingPlaybackAcrossContentFolders)

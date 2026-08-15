@@ -170,6 +170,7 @@ namespace EmuFolders
 	std::string InputProfiles;
 	std::string InputRecordings;
 	std::vector<std::string> AdditionalContentFolders;
+	std::vector<std::pair<std::string, std::string>> ContentAliases;
 	std::string Videos;
 
 	static bool ShouldUsePortableMode();
@@ -2322,6 +2323,46 @@ static bool PathsEqual(const std::string& lhs, const std::string& rhs)
 #endif
 }
 
+void EmuFolders::LoadContentAliases(SettingsInterface& si)
+{
+	ContentAliases.clear();
+	for (std::pair<std::string, std::string> entry : si.GetKeyValueList("ContentAliases"))
+	{
+		StringUtil::StripWhitespace(&entry.first);
+		StringUtil::StripWhitespace(&entry.second);
+		if (entry.first.empty() || entry.second.empty())
+			continue;
+		if (Path::SanitizeFileName(entry.second) != entry.second)
+		{
+			Console.Warning("Ignoring invalid content alias '%s' for '%s'.", entry.second.c_str(), entry.first.c_str());
+			continue;
+		}
+		ContentAliases.push_back(std::move(entry));
+	}
+}
+
+std::string EmuFolders::GetContentAlias(const std::string_view serial, const u32 crc)
+{
+	if (serial.empty())
+		return {};
+
+	const auto find_alias = [](const std::string_view identity) -> std::string {
+		const std::string identity_string(identity);
+		for (auto it = ContentAliases.rbegin(); it != ContentAliases.rend(); ++it)
+		{
+			if (StringUtil::Strcasecmp(it->first.c_str(), identity_string.c_str()) == 0)
+				return it->second;
+		}
+		return {};
+	};
+	if (crc != 0)
+	{
+		if (std::string alias = find_alias(fmt::format("{}_{:08X}", serial, crc)); !alias.empty())
+			return alias;
+	}
+	return find_alias(serial);
+}
+
 void EmuFolders::LoadConfig(SettingsInterface& si)
 {
 	Bios = LoadPathFromSettings(si, DataRoot, "Bios", "bios");
@@ -2353,6 +2394,7 @@ void EmuFolders::LoadConfig(SettingsInterface& si)
 			AdditionalContentFolders.push_back(std::move(path));
 		}
 	}
+	LoadContentAliases(si);
 	Videos = LoadPathFromSettings(si, DataRoot, "Videos", "videos");
 	DebuggerLayouts = LoadPathFromSettings(si, Settings, "DebuggerLayouts", "debuggerlayouts");
 	DebuggerSettings = LoadPathFromSettings(si, Settings, "DebuggerSettings", "debuggersettings");

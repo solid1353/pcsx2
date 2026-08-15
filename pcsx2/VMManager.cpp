@@ -886,6 +886,17 @@ std::string VMManager::GetGameSettingsPath(const std::string_view game_serial, u
 	const std::string sanitized_serial(Path::SanitizeFileName(game_serial));
 	if (!sanitized_serial.empty())
 	{
+		if (const std::string content_alias = EmuFolders::GetContentAlias(game_serial, game_crc); !content_alias.empty())
+		{
+			const std::string alias_filename = fmt::format("{}.ini", content_alias);
+			for (const std::string& directory : EmuFolders::GetContentSearchFolders(EmuFolders::GameSettings))
+			{
+				if (std::optional<std::string> path = FindGameSettingsFile(directory, alias_filename))
+					return std::move(path.value());
+			}
+			return Path::Combine(EmuFolders::GameSettings, alias_filename);
+		}
+
 		const std::string serial_filename = fmt::format("{}.ini", sanitized_serial);
 		const std::string exact_filename = fmt::format("{}_{:08X}.ini", sanitized_serial, game_crc);
 		const std::string root_exact_path = Path::Combine(EmuFolders::GameSettings, exact_filename);
@@ -911,6 +922,9 @@ std::string VMManager::GetGameSettingsPath(const std::string_view game_serial, u
 std::string VMManager::GetGameSettingsSectionPrefix(const std::string_view game_serial, u32 game_crc)
 {
 	if (game_serial.empty())
+		return {};
+
+	if (!EmuFolders::GetContentAlias(game_serial, game_crc).empty())
 		return {};
 
 	const std::string sanitized_serial(Path::SanitizeFileName(game_serial));
@@ -967,6 +981,7 @@ void VMManager::Internal::UpdateEmuFolders()
 	const std::string old_patches_directory(EmuFolders::Patches);
 	const std::string old_game_settings_directory(EmuFolders::GameSettings);
 	const std::vector<std::string> old_additional_content_folders(EmuFolders::AdditionalContentFolders);
+	const std::vector<std::pair<std::string, std::string>> old_content_aliases(EmuFolders::ContentAliases);
 	const std::string old_memcards_directory(EmuFolders::MemoryCards);
 	const std::string old_textures_directory(EmuFolders::Textures);
 	const std::string old_videos_directory(EmuFolders::Videos);
@@ -980,8 +995,9 @@ void VMManager::Internal::UpdateEmuFolders()
 	{
 		const bool additional_content_folders_changed =
 			EmuFolders::AdditionalContentFolders != old_additional_content_folders;
+		const bool content_aliases_changed = EmuFolders::ContentAliases != old_content_aliases;
 		const bool game_settings_folders_changed =
-			EmuFolders::GameSettings != old_game_settings_directory || additional_content_folders_changed;
+			EmuFolders::GameSettings != old_game_settings_directory || additional_content_folders_changed || content_aliases_changed;
 		if (game_settings_folders_changed)
 		{
 			ReloadGameSettings();

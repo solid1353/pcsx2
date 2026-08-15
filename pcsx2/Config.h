@@ -1465,6 +1465,7 @@ namespace EmuFolders
 	extern std::string InputProfiles;
 	extern std::string InputRecordings;
 	extern std::vector<std::string> AdditionalContentFolders;
+	extern std::vector<std::pair<std::string, std::string>> ContentAliases;
 	extern std::string Videos;
 	extern std::string DebuggerLayouts;
 	extern std::string DebuggerSettings;
@@ -1477,7 +1478,9 @@ namespace EmuFolders
 	// Assumes that AppRoot and DataRoot have been initialized.
 	void SetDefaults(SettingsInterface& si);
 	void LoadConfig(SettingsInterface& si);
+	void LoadContentAliases(SettingsInterface& si);
 	bool EnsureFoldersExist();
+	std::string GetContentAlias(std::string_view serial, u32 crc);
 	std::vector<std::string> GetContentSearchFolders(const std::string& primary_folder);
 	std::string FindFileInContentFolders(const std::string& primary_folder, std::string_view relative_path);
 	std::string FindPathInContentFolders(const std::string& primary_folder, std::string_view relative_path);

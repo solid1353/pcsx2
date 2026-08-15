@@ -408,10 +408,18 @@ std::vector<std::string> Patch::FindPatchFilesOnDisk(const std::string_view seri
 	const std::vector<std::string> directories = cheats ? EmuFolders::GetContentSearchFolders(EmuFolders::Cheats) :
 	                                                      std::vector<std::string>{EmuFolders::Patches};
 	std::vector<std::string> patterns;
-	patterns.push_back(GetPnachTemplate(serial, crc, true, true, all_crcs));
-	patterns.push_back(GetPnachTemplate(serial, crc, false, true, false));
-	if (!serial.empty())
-		patterns.push_back(fmt::format("{}.pnach", serial));
+	const std::string content_alias = cheats ? EmuFolders::GetContentAlias(serial, crc) : std::string();
+	if (!content_alias.empty())
+	{
+		patterns.push_back(fmt::format("{}.pnach", content_alias));
+	}
+	else
+	{
+		patterns.push_back(GetPnachTemplate(serial, crc, true, true, all_crcs));
+		patterns.push_back(GetPnachTemplate(serial, crc, false, true, false));
+		if (!serial.empty())
+			patterns.push_back(fmt::format("{}.pnach", serial));
+	}
 
 	std::vector<std::string> ret;
 	for (const std::string& directory : directories)
@@ -743,6 +751,11 @@ std::vector<Patch::PatchInfo> Patch::GetPatchInfo(const std::string_view serial,
 
 std::string Patch::GetPnachFilename(const std::string_view serial, u32 crc, bool cheats)
 {
+	if (cheats)
+	{
+		if (const std::string content_alias = EmuFolders::GetContentAlias(serial, crc); !content_alias.empty())
+			return Path::Combine(EmuFolders::Cheats, fmt::format("{}.pnach", content_alias));
+	}
 	return Path::Combine(cheats ? EmuFolders::Cheats : EmuFolders::Patches, GetPnachTemplate(serial, crc, true, false, false));
 }
 
