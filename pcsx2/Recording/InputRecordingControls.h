@@ -18,9 +18,11 @@ public:
 	};
 
 	void toggleRecordMode();
+	void setRecordModeEnabled(bool enabled);
 	void setRecordMode(bool waitForFrameToEnd = true);
 	void setReplayMode(bool waitForFrameToEnd = true);
 
+	bool isRecordModeEnabled() const;
 	bool isRecording() const;
 	bool isReplaying() const;
 
@@ -28,6 +30,6 @@ public:
 
 private:
 	Mode m_state = Mode::Replaying;
+	bool m_record_mode_enabled = false;
 	std::queue<std::function<void()>> m_controlQueue;
 };
-

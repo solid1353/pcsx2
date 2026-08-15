@@ -16,6 +16,12 @@ void InputRecordingControls::toggleRecordMode()
 {
 	if (isReplaying())
 	{
+		if (!isRecordModeEnabled())
+		{
+			InputRec::log(TRANSLATE("InputRecordingControls", "Input recording playback is read-only"),
+				Host::OSD_INFO_DURATION);
+			return;
+		}
 		setRecordMode();
 	}
 	else
@@ -24,8 +30,16 @@ void InputRecordingControls::toggleRecordMode()
 	}
 }
 
+void InputRecordingControls::setRecordModeEnabled(const bool enabled)
+{
+	m_record_mode_enabled = enabled;
+}
+
 void InputRecordingControls::setRecordMode(bool waitForFrameToEnd)
 {
+	if (!m_record_mode_enabled)
+		return;
+
 	if (!waitForFrameToEnd || VMManager::GetState() == VMState::Paused)
 	{
 		m_state = Mode::Recording;
@@ -34,7 +48,9 @@ void InputRecordingControls::setRecordMode(bool waitForFrameToEnd)
 	}
 	else
 	{
-		m_controlQueue.push([&]() {
+		m_controlQueue.push([this]() {
+			if (!m_record_mode_enabled)
+				return;
 			m_state = Mode::Recording;
 			InputRec::log(TRANSLATE("InputRecordingControls","Record Mode Enabled"), Host::OSD_INFO_DURATION);
 		});
@@ -56,6 +72,11 @@ void InputRecordingControls::setReplayMode(bool waitForFrameToEnd)
 			InputRec::log(TRANSLATE("InputRecordingControls","Record Mode Enabled"), Host::OSD_INFO_DURATION);
 		});
 	}
+}
+
+bool InputRecordingControls::isRecordModeEnabled() const
+{
+	return m_record_mode_enabled;
 }
 
 bool InputRecordingControls::isReplaying() const

@@ -57,6 +57,7 @@ bool InputRecordingFile::close() noexcept
 	}
 	fclose(m_recordingFile);
 	m_recordingFile = nullptr;
+	m_writable = false;
 	m_filename.clear();
 	return true;
 }
@@ -83,11 +84,12 @@ bool InputRecordingFile::fromSaveState() const noexcept
 
 void InputRecordingFile::incrementUndoCount()
 {
-	m_undoCount++;
-	if (m_recordingFile == nullptr)
+	if (m_recordingFile == nullptr || !m_writable)
 	{
 		return;
 	}
+
+	m_undoCount++;
 	fseek(m_recordingFile, s_seekpointUndoCount, SEEK_SET);
 	fwrite(&m_undoCount, 4, 1, m_recordingFile);
 	InputRecording::InformGSThread();
@@ -102,6 +104,7 @@ bool InputRecordingFile::openNew(const std::string& path, bool fromSavestate)
 	}
 
 	m_filename = path;
+	m_writable = true;
 	m_totalFrames = 0;
 	m_undoCount = 0;
 	m_header.init();
@@ -112,7 +115,8 @@ bool InputRecordingFile::openNew(const std::string& path, bool fromSavestate)
 
 bool InputRecordingFile::openExisting(const std::string& path)
 {
-	if ((m_recordingFile = FileSystem::OpenCFile(path.data(), "rb+")) == nullptr)
+	if ((m_recordingFile = FileSystem::OpenSharedCFile(
+			 path.data(), "rb", FileSystem::FileShareMode::DenyWrite)) == nullptr)
 	{
 		InputRec::consoleLog(fmt::format("Input recording file opening failed. Error - {}", strerror(errno)));
 		return false;
@@ -126,6 +130,7 @@ bool InputRecordingFile::openExisting(const std::string& path)
 	}
 
 	m_filename = path;
+	m_writable = false;
 	InputRecording::InformGSThread();
 	return true;
 }
@@ -151,7 +156,7 @@ std::optional<PadData> InputRecordingFile::readPadData(const uint frame, const u
 
 void InputRecordingFile::setTotalFrames(u32 frame)
 {
-	if (m_recordingFile == nullptr)
+	if (m_recordingFile == nullptr || !m_writable)
 	{
 		return;
 	}
@@ -163,7 +168,7 @@ void InputRecordingFile::setTotalFrames(u32 frame)
 
 bool InputRecordingFile::writeHeader() const
 {
-	if (m_recordingFile == nullptr)
+	if (m_recordingFile == nullptr || !m_writable)
 	{
 		return false;
 	}
@@ -180,7 +185,7 @@ bool InputRecordingFile::writeHeader() const
 
 bool InputRecordingFile::writePadData(const uint frame, const PadData data) const
 {
-	if (m_recordingFile == nullptr)
+	if (m_recordingFile == nullptr || !m_writable)
 	{
 		return false;
 	}

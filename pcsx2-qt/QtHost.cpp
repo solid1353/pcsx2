@@ -2232,7 +2232,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -slowboot: Force slow boot for provided filename.\n");
 	std::fprintf(stderr, "  -state <index>: Loads specified save state by index.\n");
 	std::fprintf(stderr, "  -statefile <filename>: Loads state from the specified filename.\n");
-	std::fprintf(stderr, "  -input-recording <path>: Replays an exact absolute path or a path relative to the primary InputRecordings folder, and captures L3+R3 markers.\n");
+	std::fprintf(stderr, "  -input-recording <path>: Replays read-only from an exact absolute path or a path relative to the primary InputRecordings folder, and captures L3+R3 markers.\n");
 	std::fprintf(stderr, "  -input-recording-capture-directory <path>: Saves replay marker savestates and screenshots to path.\n");
 	std::fprintf(stderr, "  -input-recording-create <path>: Creates at an exact absolute path or a path relative to the primary InputRecordings folder.\n");
 	std::fprintf(stderr, "  -fullscreen: Enters fullscreen mode immediately after starting.\n");

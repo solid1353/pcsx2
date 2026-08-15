@@ -42,15 +42,15 @@ public:
 	// Closes the underlying input recording file, writing the header and
 	// prepares for a possible new recording to be started
 	bool close() noexcept;
-	
+
 	// The number of times a save-state has been loaded while recording this movie
 	// this is also often referred to as a "re-record"
-	
+
 	// Whether or not this input recording starts by loading a save-state or by booting the game fresh
 	bool fromSaveState() const noexcept;
 	// Increment the number of undo actions and commit it to the recording file
 	void incrementUndoCount();
-	// Open an existing recording file
+	// Open an existing recording file for shared, read-only playback
 	bool openExisting(const std::string& path);
 	// Create and open a brand new input recording, either starting from a save-state or from
 	// booting the game
@@ -89,6 +89,7 @@ private:
 
 	std::string m_filename = "";
 	FILE* m_recordingFile = nullptr;
+	bool m_writable = false;
 	bool m_savestate = false;
 
 	// An signed 32-bit frame limit is equivalent to 1.13 years of continuous 60fps footage

@@ -47,6 +47,7 @@ bool InputRecording::create(const std::string& fileName, const bool fromSaveStat
 	m_capture_savestate_directory.clear();
 	m_capture_snapshot_directory.clear();
 
+	m_controls.setRecordModeEnabled(true);
 	if (!m_file.openNew(fileName, fromSaveState))
 	{
 		return false;
@@ -98,6 +99,7 @@ bool InputRecording::play(const std::string& filename, bool capture_markers, con
 	m_capture_savestate_directory.clear();
 	m_capture_snapshot_directory.clear();
 
+	m_controls.setRecordModeEnabled(false);
 	if (!m_file.openExisting(filename))
 	{
 		return false;
@@ -371,10 +373,13 @@ bool InputRecording::isActive() const
 
 void InputRecording::handleExceededFrameCounter()
 {
-	// if we go past the end, switch to recording mode so nothing is lost
+	// Writable recordings continue past the end in record mode. Read-only playback stops there.
 	if (!m_exit_on_replay_completion && m_frame_counter >= m_file.getTotalFrames() && m_controls.isReplaying())
 	{
-		m_controls.setRecordMode(false);
+		if (m_controls.isRecordModeEnabled())
+			m_controls.setRecordMode(false);
+		else
+			VMManager::SetPaused(true);
 	}
 }
 
@@ -459,7 +464,8 @@ void InputRecording::adjustFrameCounterOnReRecord(u32 newFrameCounter)
 	}
 	m_frame_counter = newFrameCounter - m_starting_frame;
 	m_frame_counter_stateless--;
-	m_file.setTotalFrames(m_frame_counter);
+	if (m_controls.isRecording())
+		m_file.setTotalFrames(m_frame_counter);
 	InformGSThread();
 }
 
