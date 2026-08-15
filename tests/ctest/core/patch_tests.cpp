@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Patch.h"
+#include "SIO/Memcard/MemoryCardFile.h"
 #include "VMManager.h"
 
 #include "common/Path.h"
@@ -10,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -275,6 +277,85 @@ TEST(Patch, ResolvesGameSettingsAndRecordingPlaybackAcrossContentFolders)
 	EXPECT_EQ(VMManager::GetGameSettingsPath("SLUS-00002", 0x12345678), primary_settings.string());
 	EXPECT_EQ(EmuFolders::FindFileInContentFolders(EmuFolders::InputRecordings, "missing.p2m2"),
 		Path::Combine(EmuFolders::InputRecordings, "missing.p2m2"));
+}
+
+TEST(MemoryCard, ResolvesAndManagesCardsAcrossContentFolders)
+{
+	const std::filesystem::path test_directory = std::filesystem::current_path() /
+	                                             ("memory-card-content-folders-test-" +
+													 std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+	const std::filesystem::path primary_directory = test_directory / "primary";
+	const std::filesystem::path first_directory = test_directory / "first";
+	const std::filesystem::path second_directory = test_directory / "second";
+	ASSERT_TRUE(std::filesystem::create_directories(primary_directory));
+	ASSERT_TRUE(std::filesystem::create_directories(first_directory));
+	ASSERT_TRUE(std::filesystem::create_directories(second_directory));
+
+	const std::string old_memory_cards_directory = EmuFolders::MemoryCards;
+	const std::vector<std::string> old_additional_content_folders = EmuFolders::AdditionalContentFolders;
+	struct Cleanup
+	{
+		std::filesystem::path directory;
+		std::string memory_cards_directory;
+		std::vector<std::string> additional_content_folders;
+		~Cleanup()
+		{
+			EmuFolders::MemoryCards = std::move(memory_cards_directory);
+			EmuFolders::AdditionalContentFolders = std::move(additional_content_folders);
+			std::error_code error;
+			std::filesystem::remove_all(directory, error);
+		}
+	} cleanup{test_directory, old_memory_cards_directory, old_additional_content_folders};
+
+	const auto create_card = [](const std::filesystem::path& path) {
+		std::ofstream file(path, std::ios::binary);
+		file.seekp((1024 * 1024) - 1);
+		file.put('\0');
+	};
+	const std::filesystem::path primary_duplicate = primary_directory / "duplicate.ps2";
+	const std::filesystem::path first_duplicate = first_directory / "duplicate.ps2";
+	const std::filesystem::path external_card = first_directory / "external.ps2";
+	create_card(primary_duplicate);
+	create_card(first_duplicate);
+	create_card(external_card);
+	ASSERT_TRUE(std::filesystem::is_regular_file(primary_duplicate));
+	ASSERT_TRUE(std::filesystem::is_regular_file(first_duplicate));
+	ASSERT_TRUE(std::filesystem::is_regular_file(external_card));
+
+	EmuFolders::MemoryCards = primary_directory.string();
+	EmuFolders::AdditionalContentFolders = {first_directory.string(), second_directory.string()};
+
+	Pcsx2Config config;
+	config.Mcd[0].Filename = "external.ps2";
+	EXPECT_EQ(config.FullpathToMcd(0), external_card.string());
+	config.Mcd[0].Filename = "missing.ps2";
+	EXPECT_EQ(config.FullpathToMcd(0), (primary_directory / "missing.ps2").string());
+
+	const std::vector<AvailableMcdInfo> cards = FileMcd_GetAvailableCards(true);
+	ASSERT_EQ(cards.size(), 2u);
+	const auto duplicate = std::find_if(cards.begin(), cards.end(),
+		[](const AvailableMcdInfo& card) { return card.name == "duplicate.ps2"; });
+	ASSERT_NE(duplicate, cards.end());
+	EXPECT_EQ(duplicate->path, primary_duplicate.string());
+	const auto external = std::find_if(cards.begin(), cards.end(),
+		[](const AvailableMcdInfo& card) { return card.name == "external.ps2"; });
+	ASSERT_NE(external, cards.end());
+	EXPECT_EQ(external->path, external_card.string());
+
+	const std::optional<AvailableMcdInfo> external_info = FileMcd_GetCardInfo("external.ps2");
+	ASSERT_TRUE(external_info.has_value());
+	EXPECT_EQ(external_info->path, external_card.string());
+	EXPECT_FALSE(FileMcd_RenameCard("external.ps2", "duplicate.ps2"));
+	EXPECT_TRUE(FileMcd_RenameCard("external.ps2", "renamed.ps2"));
+	const std::filesystem::path renamed_card = first_directory / "renamed.ps2";
+	EXPECT_TRUE(std::filesystem::is_regular_file(renamed_card));
+	EXPECT_TRUE(FileMcd_DeleteCard("renamed.ps2"));
+	EXPECT_FALSE(std::filesystem::exists(renamed_card));
+
+	const std::filesystem::path folder_card = second_directory / "folder.ps2";
+	ASSERT_TRUE(std::filesystem::create_directory(folder_card));
+	config.Mcd[0].Filename = "folder.ps2";
+	EXPECT_EQ(config.FullpathToMcd(0), folder_card.string());
 }
 
 TEST(Patch, ValidatesAndPreservesCommandLinePnachLines)

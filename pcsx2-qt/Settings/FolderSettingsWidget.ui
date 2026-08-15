@@ -310,7 +310,7 @@
       <item>
        <widget class="QLabel" name="additionalContentFoldersLabel">
         <property name="text">
-         <string>Also searched, in order, for cheats, game settings, and input-recording playback. New game settings and recordings are still saved in their primary folders.</string>
+         <string>Also searched, in order, for cheats, game settings, memory cards, and input-recording playback. New game settings, memory cards, and recordings are still saved in their primary folders.</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>

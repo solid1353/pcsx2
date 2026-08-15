@@ -1440,7 +1440,7 @@ static void DrawAdditionalContentFoldersSetting(SettingsInterface* bsi)
 {
 	const std::vector<std::string> folders = EmuFolders::AdditionalContentFolders;
 	if (ImGuiFullscreen::MenuButtonWithValue(FSUI_ICONSTR(ICON_FA_FOLDER_PLUS, "Add Additional Content Folder"),
-			FSUI_CSTR("Adds a folder searched for cheats, game settings, and input-recording playback."),
+			FSUI_CSTR("Adds a folder searched for cheats, game settings, memory cards, and input-recording playback."),
 			folders.empty() ? FSUI_CSTR("None configured") : fmt::format(FSUI_FSTR("{} configured"), folders.size()).c_str(), true))
 	{
 		ImGuiFullscreen::OpenFileSelector(FSUI_CSTR("Select Additional Content Folder"), true,

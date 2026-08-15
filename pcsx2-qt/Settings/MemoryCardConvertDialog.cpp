@@ -254,8 +254,12 @@ void MemoryCardConvertDialog::ConvertCard()
 
 		// If a match is found, revert back to the base name, add a number and the extension, and try again.
 		// Keep incrementing the number until we get a unique result.
-		while (m_srcCardInfo.type == MemoryCardType::File ? FileSystem::DirectoryExists(Path::Combine(EmuFolders::MemoryCards, destName.toStdString()).c_str()) : FileSystem::FileExists(Path::Combine(EmuFolders::MemoryCards, destName.toStdString()).c_str()))
+		for (;;)
 		{
+			const std::string existing_path =
+				EmuFolders::FindPathInContentFolders(EmuFolders::MemoryCards, destName.toStdString());
+			if (!FileSystem::FileExists(existing_path.c_str()) && !FileSystem::DirectoryExists(existing_path.c_str()))
+				break;
 			destName = baseName;
 			destName.append(StringUtil::StdStringFromFormat("_%02zd.ps2", ++num).c_str());
 		}

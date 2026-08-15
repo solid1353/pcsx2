@@ -897,61 +897,73 @@ bool FileMcd_IsMemoryCardFormatted(std::FILE* fp)
 
 std::vector<AvailableMcdInfo> FileMcd_GetAvailableCards(bool include_in_use_cards)
 {
-	std::vector<FILESYSTEM_FIND_DATA> files;
-	FileSystem::FindFiles(EmuFolders::MemoryCards.c_str(), "*",
-		FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_FOLDERS | FILESYSTEM_FIND_HIDDEN_FILES, &files);
-
 	std::vector<AvailableMcdInfo> mcds;
-	mcds.reserve(files.size());
-
-	for (FILESYSTEM_FIND_DATA& fd : files)
+	for (const std::string& directory : EmuFolders::GetContentSearchFolders(EmuFolders::MemoryCards))
 	{
-		std::string basename(Path::GetFileName(fd.FileName));
-		if (!include_in_use_cards)
+		std::vector<FILESYSTEM_FIND_DATA> files;
+		FileSystem::FindFiles(directory.c_str(), "*",
+			FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_FOLDERS | FILESYSTEM_FIND_HIDDEN_FILES, &files);
+		for (FILESYSTEM_FIND_DATA& fd : files)
 		{
-			bool in_use = false;
-			for (size_t i = 0; i < std::size(EmuConfig.Mcd); i++)
+			std::string basename(Path::GetFileName(fd.FileName));
+			if (!include_in_use_cards)
 			{
-				if (EmuConfig.Mcd[i].Filename == basename)
+				bool in_use = false;
+				for (size_t i = 0; i < std::size(EmuConfig.Mcd); i++)
 				{
-					in_use = true;
-					break;
+					if (EmuConfig.Mcd[i].Filename == basename)
+					{
+						in_use = true;
+						break;
+					}
 				}
+				if (in_use)
+					continue;
 			}
-			if (in_use)
+
+			// We only want relevant file types.
+			if (!(fd.FileName.ends_with(".ps2") || fd.FileName.ends_with(".mcr") ||
+					fd.FileName.ends_with(".mcd") || fd.FileName.ends_with(".bin") ||
+					fd.FileName.ends_with(".mc2")))
+			{
 				continue;
-		}
+			}
 
-		// We only want relevant file types.
-		if (!(fd.FileName.ends_with(".ps2") || fd.FileName.ends_with(".mcr") ||
-				fd.FileName.ends_with(".mcd") || fd.FileName.ends_with(".bin") ||
-				fd.FileName.ends_with(".mc2")))
-			continue;
-
-		if (fd.Attributes & FILESYSTEM_FILE_ATTRIBUTE_DIRECTORY)
-		{
-			if (!FileMcd_IsFolder(fd.FileName))
-				continue;
-
-			FolderMemoryCard sourceFolderMemoryCard;
-			Pcsx2Config::McdOptions config;
-			config.Enabled = true;
-			config.Type = MemoryCardType::Folder;
-			sourceFolderMemoryCard.Open(fd.FileName, config, (8 * 1024 * 1024) / FolderMemoryCard::ClusterSize, true, "");
-
-			mcds.push_back({std::move(basename), std::move(fd.FileName), fd.ModificationTime,
-				MemoryCardType::Folder, MemoryCardFileType::Unknown, 0u, sourceFolderMemoryCard.IsFormatted()});
-			sourceFolderMemoryCard.Close(false);
-		}
-		else
-		{
-			if (fd.Size < MCD_SIZE)
+			const bool duplicate = std::any_of(mcds.begin(), mcds.end(), [&basename](const AvailableMcdInfo& mcd) {
+#ifdef _WIN32
+				return StringUtil::Strcasecmp(mcd.name.c_str(), basename.c_str()) == 0;
+#else
+				return mcd.name == basename;
+#endif
+			});
+			if (duplicate)
 				continue;
 
-			const bool formatted = FileMcd_IsMemoryCardFormatted(fd.FileName);
-			mcds.push_back({std::move(basename), std::move(fd.FileName), fd.ModificationTime,
-				MemoryCardType::File, GetMemoryCardFileTypeFromSize(fd.Size),
-				static_cast<u32>(fd.Size), formatted});
+			if (fd.Attributes & FILESYSTEM_FILE_ATTRIBUTE_DIRECTORY)
+			{
+				if (!FileMcd_IsFolder(fd.FileName))
+					continue;
+
+				FolderMemoryCard sourceFolderMemoryCard;
+				Pcsx2Config::McdOptions config;
+				config.Enabled = true;
+				config.Type = MemoryCardType::Folder;
+				sourceFolderMemoryCard.Open(fd.FileName, config, (8 * 1024 * 1024) / FolderMemoryCard::ClusterSize, true, "");
+
+				mcds.push_back({std::move(basename), std::move(fd.FileName), fd.ModificationTime,
+					MemoryCardType::Folder, MemoryCardFileType::Unknown, 0u, sourceFolderMemoryCard.IsFormatted()});
+				sourceFolderMemoryCard.Close(false);
+			}
+			else
+			{
+				if (fd.Size < MCD_SIZE)
+					continue;
+
+				const bool formatted = FileMcd_IsMemoryCardFormatted(fd.FileName);
+				mcds.push_back({std::move(basename), std::move(fd.FileName), fd.ModificationTime,
+					MemoryCardType::File, GetMemoryCardFileTypeFromSize(fd.Size),
+					static_cast<u32>(fd.Size), formatted});
+			}
 		}
 	}
 
@@ -964,7 +976,7 @@ std::optional<AvailableMcdInfo> FileMcd_GetCardInfo(const std::string_view name)
 	std::optional<AvailableMcdInfo> ret;
 
 	std::string basename(name);
-	std::string path(Path::Combine(EmuFolders::MemoryCards, basename));
+	std::string path(EmuFolders::FindPathInContentFolders(EmuFolders::MemoryCards, basename));
 
 	FILESYSTEM_STAT_DATA sd;
 	if (!FileSystem::StatFile(path.c_str(), &sd))
@@ -995,6 +1007,9 @@ std::optional<AvailableMcdInfo> FileMcd_GetCardInfo(const std::string_view name)
 bool FileMcd_CreateNewCard(const std::string_view name, MemoryCardType type, MemoryCardFileType file_type)
 {
 	const std::string full_path(Path::Combine(EmuFolders::MemoryCards, name));
+	const std::string existing_path(EmuFolders::FindPathInContentFolders(EmuFolders::MemoryCards, name));
+	if (FileSystem::FileExists(existing_path.c_str()) || FileSystem::DirectoryExists(existing_path.c_str()))
+		return false;
 
 	if (type == MemoryCardType::Folder)
 	{
@@ -1089,11 +1104,12 @@ bool FileMcd_CreateNewCard(const std::string_view name, MemoryCardType type, Mem
 
 bool FileMcd_RenameCard(const std::string_view name, const std::string_view new_name)
 {
-	const std::string name_path(Path::Combine(EmuFolders::MemoryCards, name));
-	const std::string new_name_path(Path::Combine(EmuFolders::MemoryCards, new_name));
+	const std::string name_path(EmuFolders::FindPathInContentFolders(EmuFolders::MemoryCards, name));
+	const std::string new_name_path(Path::Combine(Path::GetDirectory(name_path), new_name));
+	const std::string existing_new_name_path(EmuFolders::FindPathInContentFolders(EmuFolders::MemoryCards, new_name));
 
 	FILESYSTEM_STAT_DATA sd, new_sd;
-	if (!FileSystem::StatFile(name_path.c_str(), &sd) || FileSystem::StatFile(new_name_path.c_str(), &new_sd))
+	if (!FileSystem::StatFile(name_path.c_str(), &sd) || FileSystem::StatFile(existing_new_name_path.c_str(), &new_sd))
 	{
 		Console.Error("(FileMcd) New name already exists, or old name does not");
 		return false;
@@ -1114,7 +1130,7 @@ bool FileMcd_RenameCard(const std::string_view name, const std::string_view new_
 
 bool FileMcd_DeleteCard(const std::string_view name)
 {
-	const std::string name_path(Path::Combine(EmuFolders::MemoryCards, name));
+	const std::string name_path(EmuFolders::FindPathInContentFolders(EmuFolders::MemoryCards, name));
 
 	FILESYSTEM_STAT_DATA sd;
 	if (!FileSystem::StatFile(name_path.c_str(), &sd))

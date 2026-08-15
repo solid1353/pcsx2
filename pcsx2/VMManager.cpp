@@ -978,8 +978,10 @@ void VMManager::Internal::UpdateEmuFolders()
 
 	if (VMManager::HasValidVM())
 	{
+		const bool additional_content_folders_changed =
+			EmuFolders::AdditionalContentFolders != old_additional_content_folders;
 		const bool game_settings_folders_changed =
-			EmuFolders::GameSettings != old_game_settings_directory || EmuFolders::AdditionalContentFolders != old_additional_content_folders;
+			EmuFolders::GameSettings != old_game_settings_directory || additional_content_folders_changed;
 		if (game_settings_folders_changed)
 		{
 			ReloadGameSettings();
@@ -988,7 +990,7 @@ void VMManager::Internal::UpdateEmuFolders()
 		else if (EmuFolders::Cheats != old_cheats_directory || EmuFolders::Patches != old_patches_directory)
 			Patch::ReloadPatches(s_disc_serial, s_current_crc, true, false, true, true);
 
-		if (EmuFolders::MemoryCards != old_memcards_directory)
+		if (EmuFolders::MemoryCards != old_memcards_directory || additional_content_folders_changed)
 		{
 			std::string memcardFilters = "";
 			if (const GameDatabaseSchema::GameEntry* game = GameDatabase::findGame(s_disc_serial))

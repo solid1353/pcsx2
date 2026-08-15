@@ -2091,7 +2091,7 @@ std::string Pcsx2Config::FullpathToMcd(uint slot) const
 	if (slot == 0 && !CurrentMemoryCardPath.empty())
 		return CurrentMemoryCardPath;
 
-	return Path::Combine(EmuFolders::MemoryCards, Mcd[slot].Filename);
+	return EmuFolders::FindPathInContentFolders(EmuFolders::MemoryCards, Mcd[slot].Filename);
 }
 
 void Pcsx2Config::CopyRuntimeConfig(Pcsx2Config& cfg)
@@ -2425,6 +2425,17 @@ std::string EmuFolders::FindFileInContentFolders(const std::string& primary_fold
 	{
 		std::string path = Path::Combine(folder, relative_path);
 		if (FileSystem::FileExists(path.c_str()))
+			return path;
+	}
+	return Path::Combine(primary_folder, relative_path);
+}
+
+std::string EmuFolders::FindPathInContentFolders(const std::string& primary_folder, const std::string_view relative_path)
+{
+	for (const std::string& folder : GetContentSearchFolders(primary_folder))
+	{
+		std::string path = Path::Combine(folder, relative_path);
+		if (FileSystem::FileExists(path.c_str()) || FileSystem::DirectoryExists(path.c_str()))
 			return path;
 	}
 	return Path::Combine(primary_folder, relative_path);
