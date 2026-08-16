@@ -258,8 +258,12 @@ void EmuThread::startVM(std::shared_ptr<VMBootParameters> boot_params)
 	if (!boot_params->input_recording.empty())
 		input_recording = EmuFolders::ResolveInputRecordingPath(boot_params->input_recording);
 	const std::string input_recording_capture_directory = boot_params->input_recording_capture_directory;
+	const InputRecordingCaptureMode input_recording_capture_mode =
+		boot_params->input_recording_capture_savestates.value_or(true) ? InputRecordingCaptureMode::Full :
+																		 InputRecordingCaptureMode::Screenshots;
 	const bool create_input_recording = boot_params->create_input_recording;
-	auto done_callback = [input_recording, input_recording_capture_directory, create_input_recording](VMBootResult result, const Error& error) {
+	auto done_callback = [input_recording, input_recording_capture_directory, input_recording_capture_mode,
+							 create_input_recording](VMBootResult result, const Error& error) {
 		if (result != VMBootResult::StartupSuccess)
 		{
 			Host::ReportErrorAsync(TRANSLATE_STR("QtHost", "Startup Error"), error.GetDescription());
@@ -268,7 +272,8 @@ void EmuThread::startVM(std::shared_ptr<VMBootParameters> boot_params)
 		if (!input_recording.empty())
 		{
 			const bool started = create_input_recording ? g_InputRecording.create(input_recording, false, std::string()) :
-			                                              g_InputRecording.play(input_recording, true, input_recording_capture_directory);
+			                                              g_InputRecording.play(input_recording, true,
+															  input_recording_capture_directory, input_recording_capture_mode);
 			if (!started)
 			{
 				Host::ReportErrorAsync(TRANSLATE_STR("QtHost", "Input Recording Error"),
@@ -2233,7 +2238,8 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -state <index>: Loads specified save state by index.\n");
 	std::fprintf(stderr, "  -statefile <filename>: Loads state from the specified filename.\n");
 	std::fprintf(stderr, "  -input-recording <path>: Replays read-only from an exact absolute path or a path relative to the primary InputRecordings folder, and captures L3+R3 markers.\n");
-	std::fprintf(stderr, "  -input-recording-capture-directory <path>: Saves replay marker savestates and screenshots to path.\n");
+	std::fprintf(stderr, "  -input-recording-capture-directory <path>: Sets the root directory for replay marker captures.\n");
+	std::fprintf(stderr, "  -input-recording-capture-mode <full|screenshots>: Selects savestate-plus-screenshot or screenshot-only marker capture.\n");
 	std::fprintf(stderr, "  -input-recording-create <path>: Creates at an exact absolute path or a path relative to the primary InputRecordings folder.\n");
 	std::fprintf(stderr, "  -fullscreen: Enters fullscreen mode immediately after starting.\n");
 	std::fprintf(stderr, "  -nofullscreen: Prevents fullscreen mode from triggering if enabled.\n");
@@ -2450,6 +2456,20 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 				AutoBoot(autoboot)->input_recording_capture_directory = (++it)->toStdString();
 				continue;
 			}
+			else if (CHECK_ARG_PARAM(QStringLiteral("-input-recording-capture-mode")))
+			{
+				const std::optional<InputRecordingCaptureMode> mode =
+					ParseInputRecordingCaptureMode((++it)->toStdString());
+				if (!mode.has_value())
+				{
+					QMessageBox::critical(nullptr, QStringLiteral("Error"),
+						QStringLiteral("Input recording capture mode must be 'full' or 'screenshots'."));
+					return false;
+				}
+				AutoBoot(autoboot)->input_recording_capture_savestates =
+					(mode.value() == InputRecordingCaptureMode::Full);
+				continue;
+			}
 			else if (CHECK_ARG_PARAM(QStringLiteral("-input-recording-create")))
 			{
 				const std::string filename = (++it)->toStdString();
@@ -2644,6 +2664,13 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 			AutoBoot(autoboot)->filename += ' ';
 
 		AutoBoot(autoboot)->filename += it->toStdString();
+	}
+	if (autoboot && autoboot->input_recording_capture_savestates.has_value() &&
+		(autoboot->input_recording.empty() || autoboot->create_input_recording))
+	{
+		QMessageBox::critical(nullptr, QStringLiteral("Error"),
+			QStringLiteral("Input recording capture mode requires -input-recording playback."));
+		return false;
 	}
 
 	// check autoboot parameters, if we set something like fullscreen without a bios

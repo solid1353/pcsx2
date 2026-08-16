@@ -4,10 +4,29 @@
 #pragma once
 
 #include <functional>
+#include <optional>
 #include <queue>
+#include <string>
+#include <string_view>
 
 #include "Recording/InputRecordingFile.h"
 #include "Recording/InputRecordingControls.h"
+
+enum class InputRecordingCaptureMode
+{
+	Full,
+	Screenshots,
+};
+
+struct InputRecordingCaptureDirectories
+{
+	std::string savestates;
+	std::string screenshots;
+};
+
+std::optional<InputRecordingCaptureMode> ParseInputRecordingCaptureMode(std::string_view value);
+InputRecordingCaptureDirectories GetInputRecordingCaptureDirectories(std::string_view recording_path,
+	std::string_view capture_directory, InputRecordingCaptureMode mode);
 
 class InputRecording
 {
@@ -19,7 +38,8 @@ public:
 	};
 
 	bool create(const std::string& filename, const bool fromSaveState, const std::string& authorName);
-	bool play(const std::string& path, bool capture_markers = false, const std::string& capture_directory = {});
+	bool play(const std::string& path, bool capture_markers = false, const std::string& capture_directory = {},
+		InputRecordingCaptureMode capture_mode = InputRecordingCaptureMode::Full);
 	void stop();
 
 	static void InformGSThread();
@@ -55,6 +75,7 @@ private:
 	bool m_watching_for_rerecords = false;
 	bool m_capture_markers = false;
 	bool m_capture_marker_down = false;
+	InputRecordingCaptureMode m_capture_mode = InputRecordingCaptureMode::Full;
 	bool m_exit_on_replay_completion = false;
 	u32 m_capture_index = 0;
 	std::string m_capture_savestate_directory;

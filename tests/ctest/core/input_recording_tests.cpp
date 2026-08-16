@@ -1,8 +1,11 @@
 // SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
+#include "Recording/InputRecording.h"
 #include "Recording/InputRecordingControls.h"
 #include "Recording/InputRecordingFile.h"
+
+#include "common/Path.h"
 
 #include <gtest/gtest.h>
 
@@ -62,4 +65,29 @@ TEST(InputRecordingControls, PreventsRecordModeForReadOnlyPlayback)
 	controls.setRecordModeEnabled(true);
 	controls.setRecordMode(false);
 	EXPECT_TRUE(controls.isRecording());
+}
+
+TEST(InputRecordingCapture, ParsesSupportedModes)
+{
+	const std::optional<InputRecordingCaptureMode> full = ParseInputRecordingCaptureMode("full");
+	const std::optional<InputRecordingCaptureMode> screenshots = ParseInputRecordingCaptureMode("screenshots");
+	ASSERT_TRUE(full.has_value());
+	ASSERT_TRUE(screenshots.has_value());
+	EXPECT_EQ(full.value(), InputRecordingCaptureMode::Full);
+	EXPECT_EQ(screenshots.value(), InputRecordingCaptureMode::Screenshots);
+	EXPECT_FALSE(ParseInputRecordingCaptureMode("invalid").has_value());
+}
+
+TEST(InputRecordingCapture, OmitsSavestateDirectoryForScreenshotOnlyMode)
+{
+	const std::string capture_root = Path::Combine("capture", "case");
+	const InputRecordingCaptureDirectories full =
+		GetInputRecordingCaptureDirectories("recording.p2m2", capture_root, InputRecordingCaptureMode::Full);
+	const InputRecordingCaptureDirectories screenshots =
+		GetInputRecordingCaptureDirectories("recording.p2m2", capture_root, InputRecordingCaptureMode::Screenshots);
+
+	EXPECT_EQ(full.savestates, Path::Combine(capture_root, "sstates"));
+	EXPECT_EQ(full.screenshots, Path::Combine(capture_root, "screenshots"));
+	EXPECT_TRUE(screenshots.savestates.empty());
+	EXPECT_EQ(screenshots.screenshots, Path::Combine(capture_root, "screenshots"));
 }

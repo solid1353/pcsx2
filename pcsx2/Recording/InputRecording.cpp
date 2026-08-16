@@ -36,12 +36,45 @@ bool SaveStateBase::InputRecordingFreeze()
 #include "GS.h"
 #include "Host.h"
 
+std::optional<InputRecordingCaptureMode> ParseInputRecordingCaptureMode(const std::string_view value)
+{
+	if (value == "full")
+		return InputRecordingCaptureMode::Full;
+	if (value == "screenshots")
+		return InputRecordingCaptureMode::Screenshots;
+	return std::nullopt;
+}
+
+InputRecordingCaptureDirectories GetInputRecordingCaptureDirectories(const std::string_view recording_path,
+	const std::string_view capture_directory, const InputRecordingCaptureMode mode)
+{
+	InputRecordingCaptureDirectories directories;
+	if (capture_directory.empty())
+	{
+		std::string recording_name = Path::SanitizeFileName(Path::GetFileTitle(recording_path));
+		if (recording_name.empty())
+			recording_name = "input-recording";
+
+		if (mode == InputRecordingCaptureMode::Full)
+			directories.savestates = Path::Combine(EmuFolders::Savestates, recording_name);
+		directories.screenshots = Path::Combine(EmuFolders::Snapshots, recording_name);
+	}
+	else
+	{
+		if (mode == InputRecordingCaptureMode::Full)
+			directories.savestates = Path::Combine(capture_directory, "sstates");
+		directories.screenshots = Path::Combine(capture_directory, "screenshots");
+	}
+	return directories;
+}
+
 InputRecording g_InputRecording;
 
 bool InputRecording::create(const std::string& fileName, const bool fromSaveState, const std::string& authorName)
 {
 	m_capture_markers = false;
 	m_capture_marker_down = false;
+	m_capture_mode = InputRecordingCaptureMode::Full;
 	m_exit_on_replay_completion = false;
 	m_capture_index = 0;
 	m_capture_savestate_directory.clear();
@@ -90,10 +123,12 @@ bool InputRecording::create(const std::string& fileName, const bool fromSaveStat
 	return true;
 }
 
-bool InputRecording::play(const std::string& filename, bool capture_markers, const std::string& capture_directory)
+bool InputRecording::play(const std::string& filename, bool capture_markers, const std::string& capture_directory,
+	const InputRecordingCaptureMode capture_mode)
 {
 	m_capture_markers = false;
 	m_capture_marker_down = false;
+	m_capture_mode = capture_mode;
 	m_exit_on_replay_completion = false;
 	m_capture_index = 0;
 	m_capture_savestate_directory.clear();
@@ -116,24 +151,15 @@ bool InputRecording::play(const std::string& filename, bool capture_markers, con
 
 	if (capture_markers)
 	{
-		std::string recording_name = Path::SanitizeFileName(Path::GetFileTitle(filename));
-		if (recording_name.empty())
-			recording_name = "input-recording";
-
-		if (capture_directory.empty())
-		{
-			m_capture_savestate_directory = Path::Combine(EmuFolders::Savestates, recording_name);
-			m_capture_snapshot_directory = Path::Combine(EmuFolders::Snapshots, recording_name);
-		}
-		else
-		{
-			m_capture_savestate_directory = Path::Combine(capture_directory, "sstates");
-			m_capture_snapshot_directory = Path::Combine(capture_directory, "screenshots");
-		}
-		if (!FileSystem::CreateDirectoryPath(m_capture_savestate_directory.c_str(), false) ||
+		InputRecordingCaptureDirectories directories =
+			GetInputRecordingCaptureDirectories(filename, capture_directory, capture_mode);
+		m_capture_savestate_directory = std::move(directories.savestates);
+		m_capture_snapshot_directory = std::move(directories.screenshots);
+		if ((!m_capture_savestate_directory.empty() &&
+				!FileSystem::CreateDirectoryPath(m_capture_savestate_directory.c_str(), false)) ||
 			!FileSystem::CreateDirectoryPath(m_capture_snapshot_directory.c_str(), false))
 		{
-			InputRec::consoleLog(fmt::format("Failed to create replay marker capture directories for {}", recording_name));
+			InputRec::consoleLog(fmt::format("Failed to create replay marker capture directories for {}", filename));
 			InputRec::log(TRANSLATE_STR("InputRecording", "Failed to create replay marker capture directories"),
 				Host::OSD_ERROR_DURATION);
 			m_file.close();
@@ -263,12 +289,20 @@ void InputRecording::handleControllerDataUpdate()
 void InputRecording::captureReplayMarker()
 {
 	const std::string capture_name = fmt::format("{:04}", ++m_capture_index);
-	const std::string savestate_path = Path::Combine(m_capture_savestate_directory, fmt::format("{}.p2s", capture_name));
 	const std::string snapshot_path = Path::Combine(m_capture_snapshot_directory, fmt::format("{}.png", capture_name));
 
-	VMManager::SaveState(savestate_path.c_str(), true, false, [capture_name](const std::string& error) {
-		if (!error.empty())
-			InputRec::consoleLog(fmt::format("Failed to save replay marker {}: {}", capture_name, error)); }, snapshot_path);
+	if (m_capture_mode == InputRecordingCaptureMode::Screenshots)
+	{
+		MTGS::RunOnGSThread([snapshot_path]() { GSQueueSnapshot(snapshot_path); });
+	}
+	else
+	{
+		const std::string savestate_path =
+			Path::Combine(m_capture_savestate_directory, fmt::format("{}.p2s", capture_name));
+		VMManager::SaveState(savestate_path.c_str(), true, false, [capture_name](const std::string& error) {
+			if (!error.empty())
+				InputRec::consoleLog(fmt::format("Failed to save replay marker {}: {}", capture_name, error)); }, snapshot_path);
+	}
 	InputRec::consoleLog(fmt::format("Captured replay marker {}", capture_name));
 }
 
