@@ -21,6 +21,7 @@ bool SaveStateBase::InputRecordingFreeze()
 #include "InputRecordingControls.h"
 #include "Utilities/InputRecordingLogger.h"
 
+#include "common/Error.h"
 #include "common/FileSystem.h"
 #include "common/Path.h"
 #include "common/StringUtil.h"
@@ -293,7 +294,9 @@ void InputRecording::captureReplayMarker()
 
 	if (m_capture_mode == InputRecordingCaptureMode::Screenshots)
 	{
-		MTGS::RunOnGSThread([snapshot_path]() { GSQueueSnapshot(snapshot_path); });
+		Error error;
+		if (!SaveState_SaveScreenshotToFile(snapshot_path.c_str(), &error))
+			InputRec::consoleLog(fmt::format("Failed to capture replay marker {}: {}", capture_name, error.GetDescription()));
 	}
 	else
 	{
