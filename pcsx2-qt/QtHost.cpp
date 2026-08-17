@@ -260,9 +260,11 @@ void EmuThread::startVM(std::shared_ptr<VMBootParameters> boot_params)
 	const std::string input_recording_capture_directory = boot_params->input_recording_capture_directory;
 	const InputRecordingCaptureMode input_recording_capture_mode =
 		boot_params->input_recording_capture_mode.value_or(InputRecordingCaptureMode::Full);
+	const InputRecordingCaptureMarkerRanges input_recording_capture_markers =
+		boot_params->input_recording_capture_markers;
 	const bool create_input_recording = boot_params->create_input_recording;
 	auto done_callback = [input_recording, input_recording_capture_directory, input_recording_capture_mode,
-							 create_input_recording](VMBootResult result, const Error& error) {
+							 input_recording_capture_markers, create_input_recording](VMBootResult result, const Error& error) {
 		if (result != VMBootResult::StartupSuccess)
 		{
 			Host::ReportErrorAsync(TRANSLATE_STR("QtHost", "Startup Error"), error.GetDescription());
@@ -272,7 +274,8 @@ void EmuThread::startVM(std::shared_ptr<VMBootParameters> boot_params)
 		{
 			const bool started = create_input_recording ? g_InputRecording.create(input_recording, false, std::string()) :
 			                                              g_InputRecording.play(input_recording, true,
-															  input_recording_capture_directory, input_recording_capture_mode);
+															  input_recording_capture_directory, input_recording_capture_mode,
+															  input_recording_capture_markers);
 			if (!started)
 			{
 				Host::ReportErrorAsync(TRANSLATE_STR("QtHost", "Input Recording Error"),
@@ -2239,6 +2242,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -input-recording <path>: Replays read-only from an exact absolute path or a path relative to the primary InputRecordings folder, and captures L3+R3 markers.\n");
 	std::fprintf(stderr, "  -input-recording-capture-directory <path>: Sets the root directory for replay marker captures.\n");
 	std::fprintf(stderr, "  -input-recording-capture-mode <full|screenshots|savestates>: Selects both outputs, screenshots only, or savestates only.\n");
+	std::fprintf(stderr, "  -input-recording-capture-markers <spec>: Captures only the specified 1-based marker numbers and ranges (for example, 1,3-5).\n");
 	std::fprintf(stderr, "  -input-recording-create <path>: Creates at an exact absolute path or a path relative to the primary InputRecordings folder.\n");
 	std::fprintf(stderr, "  -fullscreen: Enters fullscreen mode immediately after starting.\n");
 	std::fprintf(stderr, "  -nofullscreen: Prevents fullscreen mode from triggering if enabled.\n");
@@ -2468,6 +2472,19 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 				AutoBoot(autoboot)->input_recording_capture_mode = mode.value();
 				continue;
 			}
+			else if (CHECK_ARG_PARAM(QStringLiteral("-input-recording-capture-markers")))
+			{
+				std::optional<InputRecordingCaptureMarkerRanges> markers =
+					ParseInputRecordingCaptureMarkers((++it)->toStdString());
+				if (!markers.has_value())
+				{
+					QMessageBox::critical(nullptr, QStringLiteral("Error"),
+						QStringLiteral("Input recording capture markers must be a comma-separated list of positive marker numbers or ascending ranges (for example, '1,3-5')."));
+					return false;
+				}
+				AutoBoot(autoboot)->input_recording_capture_markers = std::move(markers.value());
+				continue;
+			}
 			else if (CHECK_ARG_PARAM(QStringLiteral("-input-recording-create")))
 			{
 				const std::string filename = (++it)->toStdString();
@@ -2663,11 +2680,12 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 
 		AutoBoot(autoboot)->filename += it->toStdString();
 	}
-	if (autoboot && autoboot->input_recording_capture_mode.has_value() &&
+	if (autoboot &&
+		(autoboot->input_recording_capture_mode.has_value() || !autoboot->input_recording_capture_markers.empty()) &&
 		(autoboot->input_recording.empty() || autoboot->create_input_recording))
 	{
 		QMessageBox::critical(nullptr, QStringLiteral("Error"),
-			QStringLiteral("Input recording capture mode requires -input-recording playback."));
+			QStringLiteral("Input recording capture options require -input-recording playback."));
 		return false;
 	}
 

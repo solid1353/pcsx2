@@ -37,6 +37,10 @@ bool SaveStateBase::InputRecordingFreeze()
 #include "GS.h"
 #include "Host.h"
 
+#include <algorithm>
+#include <charconv>
+#include <limits>
+
 std::optional<InputRecordingCaptureMode> ParseInputRecordingCaptureMode(const std::string_view value)
 {
 	if (value == "full")
@@ -46,6 +50,80 @@ std::optional<InputRecordingCaptureMode> ParseInputRecordingCaptureMode(const st
 	if (value == "savestates")
 		return InputRecordingCaptureMode::Savestates;
 	return std::nullopt;
+}
+
+std::optional<InputRecordingCaptureMarkerRanges> ParseInputRecordingCaptureMarkers(const std::string_view value)
+{
+	if (value.empty() || value.front() == ',' || value.back() == ',' || value.find(",,") != std::string_view::npos)
+		return std::nullopt;
+
+	InputRecordingCaptureMarkerRanges ranges;
+	for (const std::string_view part : StringUtil::SplitString(value, ',', false))
+	{
+		if (part.empty())
+			return std::nullopt;
+
+		const size_t separator = part.find('-');
+		const std::string_view first_part = part.substr(0, separator);
+		const std::string_view last_part = (separator == std::string_view::npos) ? first_part : part.substr(separator + 1);
+		if (first_part.empty() || last_part.empty() ||
+			(separator != std::string_view::npos && last_part.find('-') != std::string_view::npos))
+		{
+			return std::nullopt;
+		}
+
+		auto parse_marker = [](const std::string_view marker) -> std::optional<u32> {
+			u32 result;
+			const std::from_chars_result parse_result =
+				std::from_chars(marker.data(), marker.data() + marker.size(), result);
+			if (parse_result.ec != std::errc() || parse_result.ptr != marker.data() + marker.size() || result == 0)
+				return std::nullopt;
+			return result;
+		};
+
+		const std::optional<u32> first = parse_marker(first_part);
+		const std::optional<u32> last = parse_marker(last_part);
+		if (!first.has_value() || !last.has_value() || first.value() > last.value())
+			return std::nullopt;
+
+		ranges.push_back({first.value(), last.value()});
+	}
+
+	if (ranges.empty())
+		return std::nullopt;
+
+	std::ranges::sort(ranges, {}, &InputRecordingCaptureMarkerRange::first);
+	InputRecordingCaptureMarkerRanges normalized_ranges;
+	for (const InputRecordingCaptureMarkerRange range : ranges)
+	{
+		if (!normalized_ranges.empty() &&
+			(range.first <= normalized_ranges.back().last ||
+				(normalized_ranges.back().last != std::numeric_limits<u32>::max() &&
+					range.first == normalized_ranges.back().last + 1)))
+		{
+			normalized_ranges.back().last = std::max(normalized_ranges.back().last, range.last);
+		}
+		else
+		{
+			normalized_ranges.push_back(range);
+		}
+	}
+	return normalized_ranges;
+}
+
+bool IsInputRecordingCaptureMarkerSelected(const InputRecordingCaptureMarkerRanges& ranges, const u32 marker)
+{
+	if (ranges.empty())
+		return true;
+
+	for (const InputRecordingCaptureMarkerRange range : ranges)
+	{
+		if (marker < range.first)
+			return false;
+		if (marker <= range.last)
+			return true;
+	}
+	return false;
 }
 
 InputRecordingCaptureDirectories GetInputRecordingCaptureDirectories(const std::string_view recording_path,
@@ -82,6 +160,7 @@ bool InputRecording::create(const std::string& fileName, const bool fromSaveStat
 	m_capture_markers = false;
 	m_capture_marker_down = false;
 	m_capture_mode = InputRecordingCaptureMode::Full;
+	m_capture_marker_ranges.clear();
 	m_exit_on_replay_completion = false;
 	m_capture_index = 0;
 	m_capture_savestate_directory.clear();
@@ -131,11 +210,12 @@ bool InputRecording::create(const std::string& fileName, const bool fromSaveStat
 }
 
 bool InputRecording::play(const std::string& filename, bool capture_markers, const std::string& capture_directory,
-	const InputRecordingCaptureMode capture_mode)
+	const InputRecordingCaptureMode capture_mode, const InputRecordingCaptureMarkerRanges& capture_marker_ranges)
 {
 	m_capture_markers = false;
 	m_capture_marker_down = false;
 	m_capture_mode = capture_mode;
+	m_capture_marker_ranges = capture_marker_ranges;
 	m_exit_on_replay_completion = false;
 	m_capture_index = 0;
 	m_capture_savestate_directory.clear();
@@ -296,7 +376,11 @@ void InputRecording::handleControllerDataUpdate()
 
 void InputRecording::captureReplayMarker()
 {
-	const std::string capture_name = fmt::format("{:04}", ++m_capture_index);
+	const u32 capture_index = ++m_capture_index;
+	if (!IsInputRecordingCaptureMarkerSelected(m_capture_marker_ranges, capture_index))
+		return;
+
+	const std::string capture_name = fmt::format("{:04}", capture_index);
 	const std::string snapshot_path = m_capture_snapshot_directory.empty() ? std::string() :
 	                                                                         Path::Combine(m_capture_snapshot_directory, fmt::format("{}.png", capture_name));
 

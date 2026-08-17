@@ -81,6 +81,39 @@ TEST(InputRecordingCapture, ParsesSupportedModes)
 	EXPECT_FALSE(ParseInputRecordingCaptureMode("invalid").has_value());
 }
 
+TEST(InputRecordingCapture, ParsesAndNormalizesMarkerSelection)
+{
+	const std::optional<InputRecordingCaptureMarkerRanges> markers =
+		ParseInputRecordingCaptureMarkers("9,2-5,1,4-7");
+	ASSERT_TRUE(markers.has_value());
+	ASSERT_EQ(markers->size(), 2u);
+	EXPECT_EQ(markers->at(0).first, 1u);
+	EXPECT_EQ(markers->at(0).last, 7u);
+	EXPECT_EQ(markers->at(1).first, 9u);
+	EXPECT_EQ(markers->at(1).last, 9u);
+}
+
+TEST(InputRecordingCapture, RejectsInvalidMarkerSelection)
+{
+	for (const std::string_view value : {"", "0", "1,", ",1", "1,,2", "1--2", "5-3", "a", "4294967296"})
+		EXPECT_FALSE(ParseInputRecordingCaptureMarkers(value).has_value()) << value;
+}
+
+TEST(InputRecordingCapture, SelectsRequestedMarkerOrdinals)
+{
+	const InputRecordingCaptureMarkerRanges all_markers;
+	EXPECT_TRUE(IsInputRecordingCaptureMarkerSelected(all_markers, 1));
+
+	const std::optional<InputRecordingCaptureMarkerRanges> markers = ParseInputRecordingCaptureMarkers("2-4,7");
+	ASSERT_TRUE(markers.has_value());
+	EXPECT_FALSE(IsInputRecordingCaptureMarkerSelected(markers.value(), 1));
+	EXPECT_TRUE(IsInputRecordingCaptureMarkerSelected(markers.value(), 2));
+	EXPECT_TRUE(IsInputRecordingCaptureMarkerSelected(markers.value(), 4));
+	EXPECT_FALSE(IsInputRecordingCaptureMarkerSelected(markers.value(), 5));
+	EXPECT_TRUE(IsInputRecordingCaptureMarkerSelected(markers.value(), 7));
+	EXPECT_FALSE(IsInputRecordingCaptureMarkerSelected(markers.value(), 8));
+}
+
 TEST(InputRecordingCapture, SelectsDirectoriesForEachMode)
 {
 	const std::string capture_root = Path::Combine("capture", "case");

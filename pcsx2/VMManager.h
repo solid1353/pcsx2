@@ -36,6 +36,7 @@ struct VMBootParameters
 	std::string input_recording;
 	std::string input_recording_capture_directory;
 	std::optional<InputRecordingCaptureMode> input_recording_capture_mode;
+	InputRecordingCaptureMarkerRanges input_recording_capture_markers;
 	bool create_input_recording = false;
 	std::optional<s32> state_index;
 	std::optional<CDVD_SourceType> source_type;
