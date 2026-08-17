@@ -2082,6 +2082,9 @@
     <ClInclude Include="Recording\InputRecordingFile.h">
       <Filter>Tools\Input Recording</Filter>
     </ClInclude>
+    <ClInclude Include="Recording\InputRecordingTypes.h">
+      <Filter>Tools\Input Recording</Filter>
+    </ClInclude>
     <ClInclude Include="Recording\PadData.h">
       <Filter>Tools\Input Recording</Filter>
     </ClInclude>

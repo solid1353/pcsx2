@@ -968,6 +968,7 @@ set(pcsx2RecordingHeaders
 	${rec_src}/InputRecording.h
 	${rec_src}/InputRecordingControls.h
 	${rec_src}/InputRecordingFile.h
+	${rec_src}/InputRecordingTypes.h
 	${rec_src}/PadData.h
 	${rec_src}/Utilities/InputRecordingLogger.h
 )

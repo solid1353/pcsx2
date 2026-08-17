@@ -14,6 +14,7 @@
 #include "common/Pcsx2Defs.h"
 
 #include "Config.h"
+#include "Recording/InputRecordingTypes.h"
 
 enum class CDVD_SourceType : uint8_t;
 
@@ -34,7 +35,7 @@ struct VMBootParameters
 	std::string save_state;
 	std::string input_recording;
 	std::string input_recording_capture_directory;
-	std::optional<bool> input_recording_capture_savestates;
+	std::optional<InputRecordingCaptureMode> input_recording_capture_mode;
 	bool create_input_recording = false;
 	std::optional<s32> state_index;
 	std::optional<CDVD_SourceType> source_type;

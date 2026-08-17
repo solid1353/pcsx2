@@ -11,12 +11,7 @@
 
 #include "Recording/InputRecordingFile.h"
 #include "Recording/InputRecordingControls.h"
-
-enum class InputRecordingCaptureMode
-{
-	Full,
-	Screenshots,
-};
+#include "Recording/InputRecordingTypes.h"
 
 struct InputRecordingCaptureDirectories
 {

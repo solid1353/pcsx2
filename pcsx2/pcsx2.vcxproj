@@ -735,6 +735,7 @@
     <ClInclude Include="Recording\InputRecording.h" />
     <ClInclude Include="Recording\InputRecordingControls.h" />
     <ClInclude Include="Recording\InputRecordingFile.h" />
+    <ClInclude Include="Recording\InputRecordingTypes.h" />
     <ClInclude Include="Recording\PadData.h" />
     <ClInclude Include="Recording\Utilities\InputRecordingLogger.h" />
     <ClInclude Include="ShaderCacheVersion.h" />

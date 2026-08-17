@@ -71,23 +71,30 @@ TEST(InputRecordingCapture, ParsesSupportedModes)
 {
 	const std::optional<InputRecordingCaptureMode> full = ParseInputRecordingCaptureMode("full");
 	const std::optional<InputRecordingCaptureMode> screenshots = ParseInputRecordingCaptureMode("screenshots");
+	const std::optional<InputRecordingCaptureMode> savestates = ParseInputRecordingCaptureMode("savestates");
 	ASSERT_TRUE(full.has_value());
 	ASSERT_TRUE(screenshots.has_value());
+	ASSERT_TRUE(savestates.has_value());
 	EXPECT_EQ(full.value(), InputRecordingCaptureMode::Full);
 	EXPECT_EQ(screenshots.value(), InputRecordingCaptureMode::Screenshots);
+	EXPECT_EQ(savestates.value(), InputRecordingCaptureMode::Savestates);
 	EXPECT_FALSE(ParseInputRecordingCaptureMode("invalid").has_value());
 }
 
-TEST(InputRecordingCapture, OmitsSavestateDirectoryForScreenshotOnlyMode)
+TEST(InputRecordingCapture, SelectsDirectoriesForEachMode)
 {
 	const std::string capture_root = Path::Combine("capture", "case");
 	const InputRecordingCaptureDirectories full =
 		GetInputRecordingCaptureDirectories("recording.p2m2", capture_root, InputRecordingCaptureMode::Full);
 	const InputRecordingCaptureDirectories screenshots =
 		GetInputRecordingCaptureDirectories("recording.p2m2", capture_root, InputRecordingCaptureMode::Screenshots);
+	const InputRecordingCaptureDirectories savestates =
+		GetInputRecordingCaptureDirectories("recording.p2m2", capture_root, InputRecordingCaptureMode::Savestates);
 
 	EXPECT_EQ(full.savestates, Path::Combine(capture_root, "sstates"));
 	EXPECT_EQ(full.screenshots, Path::Combine(capture_root, "screenshots"));
 	EXPECT_TRUE(screenshots.savestates.empty());
 	EXPECT_EQ(screenshots.screenshots, Path::Combine(capture_root, "screenshots"));
+	EXPECT_EQ(savestates.savestates, Path::Combine(capture_root, "sstates"));
+	EXPECT_TRUE(savestates.screenshots.empty());
 }

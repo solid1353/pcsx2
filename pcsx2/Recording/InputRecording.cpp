@@ -43,6 +43,8 @@ std::optional<InputRecordingCaptureMode> ParseInputRecordingCaptureMode(const st
 		return InputRecordingCaptureMode::Full;
 	if (value == "screenshots")
 		return InputRecordingCaptureMode::Screenshots;
+	if (value == "savestates")
+		return InputRecordingCaptureMode::Savestates;
 	return std::nullopt;
 }
 
@@ -50,21 +52,25 @@ InputRecordingCaptureDirectories GetInputRecordingCaptureDirectories(const std::
 	const std::string_view capture_directory, const InputRecordingCaptureMode mode)
 {
 	InputRecordingCaptureDirectories directories;
+	const bool capture_savestates = (mode != InputRecordingCaptureMode::Screenshots);
+	const bool capture_screenshots = (mode != InputRecordingCaptureMode::Savestates);
 	if (capture_directory.empty())
 	{
 		std::string recording_name = Path::SanitizeFileName(Path::GetFileTitle(recording_path));
 		if (recording_name.empty())
 			recording_name = "input-recording";
 
-		if (mode == InputRecordingCaptureMode::Full)
+		if (capture_savestates)
 			directories.savestates = Path::Combine(EmuFolders::Savestates, recording_name);
-		directories.screenshots = Path::Combine(EmuFolders::Snapshots, recording_name);
+		if (capture_screenshots)
+			directories.screenshots = Path::Combine(EmuFolders::Snapshots, recording_name);
 	}
 	else
 	{
-		if (mode == InputRecordingCaptureMode::Full)
+		if (capture_savestates)
 			directories.savestates = Path::Combine(capture_directory, "sstates");
-		directories.screenshots = Path::Combine(capture_directory, "screenshots");
+		if (capture_screenshots)
+			directories.screenshots = Path::Combine(capture_directory, "screenshots");
 	}
 	return directories;
 }
@@ -158,7 +164,8 @@ bool InputRecording::play(const std::string& filename, bool capture_markers, con
 		m_capture_snapshot_directory = std::move(directories.screenshots);
 		if ((!m_capture_savestate_directory.empty() &&
 				!FileSystem::CreateDirectoryPath(m_capture_savestate_directory.c_str(), false)) ||
-			!FileSystem::CreateDirectoryPath(m_capture_snapshot_directory.c_str(), false))
+			(!m_capture_snapshot_directory.empty() &&
+				!FileSystem::CreateDirectoryPath(m_capture_snapshot_directory.c_str(), false)))
 		{
 			InputRec::consoleLog(fmt::format("Failed to create replay marker capture directories for {}", filename));
 			InputRec::log(TRANSLATE_STR("InputRecording", "Failed to create replay marker capture directories"),
@@ -290,7 +297,8 @@ void InputRecording::handleControllerDataUpdate()
 void InputRecording::captureReplayMarker()
 {
 	const std::string capture_name = fmt::format("{:04}", ++m_capture_index);
-	const std::string snapshot_path = Path::Combine(m_capture_snapshot_directory, fmt::format("{}.png", capture_name));
+	const std::string snapshot_path = m_capture_snapshot_directory.empty() ? std::string() :
+	                                                                         Path::Combine(m_capture_snapshot_directory, fmt::format("{}.png", capture_name));
 
 	if (m_capture_mode == InputRecordingCaptureMode::Screenshots)
 	{
