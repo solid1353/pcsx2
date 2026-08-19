@@ -3,23 +3,30 @@
 
 #include "BuildVersion.h"
 #include "Common.h"
+#include "Counters.h"
 #include "GS/GS.h"
 #include "Host.h"
 #include "MTGS.h"
 #include "Elfheader.h"
+#include "Recording/InputRecording.h"
+#include "Recording/PadData.h"
 #include "SaveState.h"
 #include "PINE.h"
 #include "SIO/Pad/Pad.h"
 #include "SIO/Pad/PadDualshock2.h"
+#include "SIO/Sio.h"
 #include "VMManager.h"
 #include "vtlb.h"
 #include "common/Error.h"
 #include "common/Threading.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
+#include <mutex>
 #include <span>
 #include <sys/types.h>
 #include <thread>
@@ -95,6 +102,471 @@ static bool InitializeWinsock()
 
 namespace PINEServer
 {
+	namespace AgentControl
+	{
+		static_assert(MAX_UNIFIED_SLOTS == Pad::NUM_CONTROLLER_PORTS);
+
+		static std::mutex s_mutex;
+		static std::condition_variable s_step_condition;
+		static OverrideState s_overrides;
+		static std::atomic_bool s_has_overrides{false};
+
+		enum class StepStatus
+		{
+			Idle,
+			Pending,
+			Complete,
+			Aborted,
+		};
+
+		struct StepState
+		{
+			u64 sequence = 0;
+			StepStatus status = StepStatus::Idle;
+			u32 start_frame = 0;
+			u32 end_frame = 0;
+		};
+
+		static StepState s_step;
+
+		const PadStateBytes& GetNeutralPadState()
+		{
+			static constexpr PadStateBytes state = {
+				0xFF,
+				0xFF,
+				PadData::ANALOG_VECTOR_NEUTRAL,
+				PadData::ANALOG_VECTOR_NEUTRAL,
+				PadData::ANALOG_VECTOR_NEUTRAL,
+				PadData::ANALOG_VECTOR_NEUTRAL,
+			};
+			return state;
+		}
+
+		bool OverrideState::SetStates(const std::span<const PadStateRecord> states)
+		{
+			if (states.empty() || states.size() > MAX_UNIFIED_SLOTS)
+				return false;
+
+			std::array<bool, MAX_UNIFIED_SLOTS> seen = {};
+			for (const PadStateRecord& record : states)
+			{
+				if (record.slot >= MAX_UNIFIED_SLOTS || seen[record.slot])
+					return false;
+				seen[record.slot] = true;
+			}
+
+			for (const PadStateRecord& record : states)
+				m_states[record.slot] = record.state;
+			return true;
+		}
+
+		std::vector<u8> OverrideState::Release(const std::span<const u8> slots)
+		{
+			std::vector<u8> released;
+			if (slots.empty())
+			{
+				for (u8 slot = 0; slot < m_states.size(); slot++)
+				{
+					if (m_states[slot].has_value())
+					{
+						released.push_back(slot);
+						m_states[slot].reset();
+					}
+				}
+				return released;
+			}
+
+			for (const u8 slot : slots)
+			{
+				if (slot < m_states.size() && m_states[slot].has_value())
+				{
+					released.push_back(slot);
+					m_states[slot].reset();
+				}
+			}
+			return released;
+		}
+
+		bool OverrideState::IsControlled(const u8 slot) const
+		{
+			return slot < m_states.size() && m_states[slot].has_value();
+		}
+
+		bool OverrideState::HasAny() const
+		{
+			return std::ranges::any_of(m_states, [](const std::optional<PadStateBytes>& state) {
+				return state.has_value();
+			});
+		}
+
+		std::optional<PadStateBytes> OverrideState::GetState(const u8 slot) const
+		{
+			return slot < m_states.size() ? m_states[slot] : std::nullopt;
+		}
+
+		static bool ParseRecords(const std::span<const u8> payload, const size_t count_offset,
+			const size_t records_offset, const bool allow_empty, std::vector<PadStateRecord>* records,
+			size_t* bytes_consumed)
+		{
+			if (payload.size() <= count_offset)
+				return false;
+
+			const size_t count = payload[count_offset];
+			if ((!allow_empty && count == 0) || count > MAX_UNIFIED_SLOTS ||
+				payload.size() < records_offset + count * (1 + PAD_STATE_SIZE))
+			{
+				return false;
+			}
+
+			std::array<bool, MAX_UNIFIED_SLOTS> seen = {};
+			records->clear();
+			records->reserve(count);
+			for (size_t i = 0; i < count; i++)
+			{
+				const size_t offset = records_offset + i * (1 + PAD_STATE_SIZE);
+				const u8 slot = payload[offset];
+				if (slot >= MAX_UNIFIED_SLOTS || seen[slot])
+					return false;
+
+				seen[slot] = true;
+				PadStateRecord& record = records->emplace_back();
+				record.slot = slot;
+				std::copy_n(payload.begin() + offset + 1, PAD_STATE_SIZE, record.state.begin());
+			}
+
+			*bytes_consumed = records_offset + count * (1 + PAD_STATE_SIZE);
+			return true;
+		}
+
+		std::optional<ParsedStateRequest> ParseStateRequest(const std::span<const u8> payload)
+		{
+			if (payload.empty() || payload[0] != PROTOCOL_VERSION)
+				return std::nullopt;
+
+			ParsedStateRequest request;
+			if (!ParseRecords(payload, 1, 2, false, &request.states, &request.bytes_consumed))
+				return std::nullopt;
+			return request;
+		}
+
+		std::optional<ParsedStepRequest> ParseStepRequest(const std::span<const u8> payload)
+		{
+			if (payload.size() < 6 || payload[0] != PROTOCOL_VERSION)
+				return std::nullopt;
+
+			ParsedStepRequest request;
+			std::memcpy(&request.frame_count, payload.data() + 1, sizeof(request.frame_count));
+			if (request.frame_count == 0 ||
+				!ParseRecords(payload, 5, 6, false, &request.states, &request.bytes_consumed))
+			{
+				return std::nullopt;
+			}
+			return request;
+		}
+
+		std::optional<ParsedSlotRequest> ParseSlotRequest(const std::span<const u8> payload, const bool allow_empty)
+		{
+			if (payload.size() < 2 || payload[0] != PROTOCOL_VERSION)
+				return std::nullopt;
+
+			const size_t count = payload[1];
+			if ((!allow_empty && count == 0) || count > MAX_UNIFIED_SLOTS || payload.size() < 2 + count)
+				return std::nullopt;
+
+			ParsedSlotRequest request;
+			request.bytes_consumed = 2 + count;
+			request.slots.reserve(count);
+			std::array<bool, MAX_UNIFIED_SLOTS> seen = {};
+			for (size_t i = 0; i < count; i++)
+			{
+				const u8 slot = payload[2 + i];
+				if (slot >= MAX_UNIFIED_SLOTS || seen[slot])
+					return std::nullopt;
+				seen[slot] = true;
+				request.slots.push_back(slot);
+			}
+			return request;
+		}
+
+		static bool IsUsablePadSlot(const u8 slot)
+		{
+			PadBase* const pad = (slot < Pad::NUM_CONTROLLER_PORTS) ? Pad::GetPad(slot) : nullptr;
+			return pad && pad->GetType() == Pad::ControllerType::DualShock2;
+		}
+
+		static void ApplyPadState(const u8 slot, const PadStateBytes& state)
+		{
+			const auto [port, pad_slot] = sioConvertPadToPortAndSlot(slot);
+			PadData(static_cast<int>(port), static_cast<int>(pad_slot), state).OverrideActualController();
+		}
+
+		static void NeutralizeSlots(const std::span<const u8> slots)
+		{
+			for (const u8 slot : slots)
+			{
+				if (IsUsablePadSlot(slot))
+					ApplyPadState(slot, GetNeutralPadState());
+			}
+		}
+
+		static std::vector<u8> ClearOverridesAndAbortStep()
+		{
+			std::vector<u8> released;
+			{
+				std::unique_lock lock(s_mutex);
+				released = s_overrides.Release(std::span<const u8>());
+				s_has_overrides.store(false, std::memory_order_release);
+				if (s_step.status == StepStatus::Pending)
+				{
+					s_step.status = StepStatus::Aborted;
+					s_step_condition.notify_all();
+				}
+			}
+			return released;
+		}
+
+		static void ClearOverridesAndNeutralizeOnCPUThread()
+		{
+			const std::vector<u8> released = ClearOverridesAndAbortStep();
+			NeutralizeSlots(released);
+		}
+
+		static bool ValidateStateOperation(const std::span<const PadStateRecord> states, const bool require_paused)
+		{
+			if (!VMManager::HasValidVM() || (require_paused && VMManager::GetState() != VMState::Paused) ||
+				g_InputRecording.isActive())
+			{
+				return false;
+			}
+
+			return std::ranges::all_of(states, [](const PadStateRecord& record) { return IsUsablePadSlot(record.slot); });
+		}
+
+		static bool InstallStatesOnCPUThread(const std::span<const PadStateRecord> states, const bool require_paused)
+		{
+			if (!ValidateStateOperation(states, require_paused))
+			{
+				ClearOverridesAndNeutralizeOnCPUThread();
+				return false;
+			}
+
+			{
+				std::unique_lock lock(s_mutex);
+				if (!s_overrides.SetStates(states))
+				{
+					lock.unlock();
+					ClearOverridesAndNeutralizeOnCPUThread();
+					return false;
+				}
+				s_has_overrides.store(true, std::memory_order_release);
+			}
+
+			for (const PadStateRecord& record : states)
+				ApplyPadState(record.slot, record.state);
+			return true;
+		}
+
+		static bool SetStatesFromServer(const std::span<const PadStateRecord> states)
+		{
+			bool success = false;
+			Host::RunOnCPUThread([&success, states]() { success = InstallStatesOnCPUThread(states, false); }, true);
+			return success;
+		}
+
+		struct StepTicket
+		{
+			u64 sequence;
+			u32 start_frame;
+		};
+
+		static bool StartStepFromServer(const ParsedStepRequest& request, StepTicket* ticket)
+		{
+			bool success = false;
+			Host::RunOnCPUThread(
+				[&request, ticket, &success]() {
+					if (!InstallStatesOnCPUThread(request.states, true))
+						return;
+
+					{
+						std::unique_lock lock(s_mutex);
+						if (s_step.status == StepStatus::Pending)
+						{
+							lock.unlock();
+							ClearOverridesAndNeutralizeOnCPUThread();
+							return;
+						}
+						s_step.sequence++;
+						s_step.status = StepStatus::Pending;
+						s_step.start_frame = g_FrameCount;
+						s_step.end_frame = g_FrameCount;
+						ticket->sequence = s_step.sequence;
+						ticket->start_frame = s_step.start_frame;
+					}
+
+					VMManager::FrameAdvance(request.frame_count);
+					if (VMManager::GetState() != VMState::Running)
+					{
+						ClearOverridesAndNeutralizeOnCPUThread();
+						return;
+					}
+					success = true;
+				},
+				true);
+			return success;
+		}
+
+		static bool WaitForStepFromServer(const StepTicket& ticket, u32* end_frame)
+		{
+			// Waiting must remain off the CPU thread so frame advance can reach auto-pause; this needs proper client runtime testing.
+			std::unique_lock lock(s_mutex);
+			s_step_condition.wait(lock, [&ticket]() {
+				return s_step.sequence != ticket.sequence || s_step.status != StepStatus::Pending;
+			});
+
+			const bool success =
+				(s_step.sequence == ticket.sequence && s_step.status == StepStatus::Complete);
+			if (success)
+				*end_frame = s_step.end_frame;
+			if (s_step.sequence == ticket.sequence)
+				s_step.status = StepStatus::Idle;
+			return success;
+		}
+
+		static bool ReadStatesFromServer(const std::span<const u8> slots, std::vector<PadStateReadback>* readback)
+		{
+			bool success = false;
+			Host::RunOnCPUThread(
+				[slots, readback, &success]() {
+					if (!VMManager::HasValidVM() || g_InputRecording.isActive() ||
+						!std::ranges::all_of(slots, [](const u8 slot) { return IsUsablePadSlot(slot); }))
+					{
+						ClearOverridesAndNeutralizeOnCPUThread();
+						return;
+					}
+
+					ApplyOverridesAfterInputPoll();
+					readback->clear();
+					readback->reserve(slots.size());
+					for (const u8 slot : slots)
+					{
+						const auto [port, pad_slot] = sioConvertPadToPortAndSlot(slot);
+						bool controlled;
+						{
+							std::unique_lock lock(s_mutex);
+							controlled = s_overrides.IsControlled(slot);
+						}
+						readback->push_back({slot, controlled,
+							PadData(static_cast<int>(port), static_cast<int>(pad_slot)).ToArray()});
+					}
+					success = true;
+				},
+				true);
+			return success;
+		}
+
+		static bool ReleaseFromServer(const std::span<const u8> slots)
+		{
+			bool success = false;
+			Host::RunOnCPUThread(
+				[slots, &success]() {
+					if (g_InputRecording.isActive())
+					{
+						ClearOverridesAndNeutralizeOnCPUThread();
+						return;
+					}
+
+					std::vector<u8> released;
+					{
+						std::unique_lock lock(s_mutex);
+						released = s_overrides.Release(slots);
+						s_has_overrides.store(s_overrides.HasAny(), std::memory_order_release);
+					}
+					NeutralizeSlots(released);
+					success = true;
+				},
+				true);
+			return success;
+		}
+
+		static void HandleCommandError()
+		{
+			Host::RunOnCPUThread([]() { ClearOverridesAndNeutralizeOnCPUThread(); }, true);
+		}
+
+		void ApplyOverridesAfterInputPoll()
+		{
+			if (!s_has_overrides.load(std::memory_order_acquire))
+				return;
+
+			if (g_InputRecording.isActive())
+			{
+				ClearOverridesAndNeutralizeOnCPUThread();
+				return;
+			}
+
+			std::vector<PadStateRecord> states;
+			{
+				std::unique_lock lock(s_mutex);
+				for (u8 slot = 0; slot < MAX_UNIFIED_SLOTS; slot++)
+				{
+					if (std::optional<PadStateBytes> state = s_overrides.GetState(slot); state.has_value())
+						states.push_back({slot, std::move(state.value())});
+				}
+			}
+
+			if (!std::ranges::all_of(states, [](const PadStateRecord& record) { return IsUsablePadSlot(record.slot); }))
+			{
+				ClearOverridesAndNeutralizeOnCPUThread();
+				return;
+			}
+			for (const PadStateRecord& record : states)
+				ApplyPadState(record.slot, record.state);
+		}
+
+		void OnClientDisconnected()
+		{
+			std::vector<u8> released = ClearOverridesAndAbortStep();
+			if (!released.empty())
+			{
+				Host::RunOnCPUThread([released = std::move(released)]() { NeutralizeSlots(released); });
+			}
+		}
+
+		void OnVMReset()
+		{
+			ClearOverridesAndNeutralizeOnCPUThread();
+		}
+
+		void OnVMShutdown()
+		{
+			ClearOverridesAndNeutralizeOnCPUThread();
+		}
+
+		void OnVMPaused(const u32 frame_count, const bool frame_advance_completed)
+		{
+			std::vector<u8> released;
+			{
+				std::unique_lock lock(s_mutex);
+				if (s_step.status != StepStatus::Pending)
+					return;
+
+				if (frame_advance_completed)
+				{
+					s_step.end_frame = frame_count;
+					s_step.status = StepStatus::Complete;
+				}
+				else
+				{
+					s_step.status = StepStatus::Aborted;
+					released = s_overrides.Release(std::span<const u8>());
+					s_has_overrides.store(false, std::memory_order_release);
+				}
+				s_step_condition.notify_all();
+			}
+			NeutralizeSlots(released);
+		}
+	} // namespace AgentControl
+
 	static std::thread s_thread;
 	static int s_slot;
 
@@ -170,6 +642,10 @@ namespace PINEServer
 		MsgResume = 0x13, /**< Resumes the virtual machine. */
 		MsgClearExecutionCaches = 0x14, /**< Clears CPU execution caches. */
 		MsgPadPulse = 0x15, /**< Pulses one DualShock 2 binding. */
+		MsgAgentSetStates = static_cast<u8>(AgentControl::Opcode::SetStates), /**< Installs persistent full-pad overrides. */
+		MsgAgentStep = static_cast<u8>(AgentControl::Opcode::Step), /**< Atomically installs pad states and advances frames. */
+		MsgAgentGetStates = static_cast<u8>(AgentControl::Opcode::GetStates), /**< Reads effective full-pad states. */
+		MsgAgentRelease = static_cast<u8>(AgentControl::Opcode::Release), /**< Releases and neutralizes pad overrides. */
 		MsgUnimplemented = 0xFF /**< Unimplemented IPC message. */
 	};
 
@@ -433,6 +909,7 @@ void PINEServer::MainLoop()
 			continue;
 
 		ClientLoop();
+		AgentControl::OnClientDisconnected();
 
 		Console.WriteLn("PINE: Client disconnected.");
 		safe_close_portable(s_msgsock);
@@ -837,6 +1314,109 @@ PINEServer::IPCBuffer PINEServer::ParseCommand(std::span<u8> buf, std::vector<u8
 				},
 					true);
 				buf_cnt += 4;
+				break;
+			}
+			case MsgAgentSetStates:
+			{
+				const std::optional<AgentControl::ParsedStateRequest> request =
+					AgentControl::ParseStateRequest(buf.subspan(buf_cnt, buf_size - buf_cnt));
+				if (!request.has_value() || !SafetyChecks(buf_cnt, static_cast<int>(request->bytes_consumed), ret_cnt, 1, buf_size) ||
+					!AgentControl::SetStatesFromServer(request->states)) [[unlikely]]
+				{
+					AgentControl::HandleCommandError();
+					goto error;
+				}
+
+				buf_cnt += static_cast<u32>(request->bytes_consumed);
+				ToResultVector(ret_buffer, AgentControl::PROTOCOL_VERSION, ret_cnt);
+				ret_cnt++;
+				break;
+			}
+			case MsgAgentStep:
+			{
+				const std::optional<AgentControl::ParsedStepRequest> request =
+					AgentControl::ParseStepRequest(buf.subspan(buf_cnt, buf_size - buf_cnt));
+				if (!request.has_value() || !SafetyChecks(buf_cnt, static_cast<int>(request->bytes_consumed),
+												ret_cnt, 9, buf_size)) [[unlikely]]
+				{
+					AgentControl::HandleCommandError();
+					goto error;
+				}
+
+				AgentControl::StepTicket ticket;
+				if (!AgentControl::StartStepFromServer(request.value(), &ticket)) [[unlikely]]
+				{
+					AgentControl::HandleCommandError();
+					goto error;
+				}
+
+				u32 end_frame;
+				if (!AgentControl::WaitForStepFromServer(ticket, &end_frame)) [[unlikely]]
+				{
+					AgentControl::HandleCommandError();
+					goto error;
+				}
+
+				buf_cnt += static_cast<u32>(request->bytes_consumed);
+				ToResultVector(ret_buffer, AgentControl::PROTOCOL_VERSION, ret_cnt);
+				ret_cnt++;
+				ToResultVector(ret_buffer, ticket.start_frame, ret_cnt);
+				ret_cnt += sizeof(ticket.start_frame);
+				ToResultVector(ret_buffer, end_frame, ret_cnt);
+				ret_cnt += sizeof(end_frame);
+				break;
+			}
+			case MsgAgentGetStates:
+			{
+				const std::optional<AgentControl::ParsedSlotRequest> request =
+					AgentControl::ParseSlotRequest(buf.subspan(buf_cnt, buf_size - buf_cnt), false);
+				const u32 reply_size = request.has_value() ?
+				                           static_cast<u32>(2 + request->slots.size() * (2 + AgentControl::PAD_STATE_SIZE)) :
+				                           0;
+				if (!request.has_value() || !SafetyChecks(buf_cnt, static_cast<int>(request->bytes_consumed),
+												ret_cnt, reply_size, buf_size)) [[unlikely]]
+				{
+					AgentControl::HandleCommandError();
+					goto error;
+				}
+
+				std::vector<AgentControl::PadStateReadback> readback;
+				if (!AgentControl::ReadStatesFromServer(request->slots, &readback)) [[unlikely]]
+				{
+					AgentControl::HandleCommandError();
+					goto error;
+				}
+
+				buf_cnt += static_cast<u32>(request->bytes_consumed);
+				ToResultVector(ret_buffer, AgentControl::PROTOCOL_VERSION, ret_cnt);
+				ret_cnt++;
+				ToResultVector(ret_buffer, static_cast<u8>(readback.size()), ret_cnt);
+				ret_cnt++;
+				for (const AgentControl::PadStateReadback& state : readback)
+				{
+					ToResultVector(ret_buffer, state.slot, ret_cnt);
+					ret_cnt++;
+					ToResultVector(ret_buffer, static_cast<u8>(state.controlled), ret_cnt);
+					ret_cnt++;
+					std::copy(state.state.begin(), state.state.end(), ret_buffer.begin() + ret_cnt);
+					ret_cnt += state.state.size();
+				}
+				break;
+			}
+			case MsgAgentRelease:
+			{
+				const std::optional<AgentControl::ParsedSlotRequest> request =
+					AgentControl::ParseSlotRequest(buf.subspan(buf_cnt, buf_size - buf_cnt), true);
+				if (!request.has_value() || !SafetyChecks(buf_cnt, static_cast<int>(request->bytes_consumed), ret_cnt, 1, buf_size) ||
+					!AgentControl::ReleaseFromServer(request->slots)) [[unlikely]]
+				{
+					AgentControl::HandleCommandError();
+					goto error;
+				}
+
+				buf_cnt += static_cast<u32>(request->bytes_consumed);
+				ToResultVector(ret_buffer, AgentControl::PROTOCOL_VERSION, ret_cnt);
+				ret_cnt++;
 				break;
 			}
 			default:

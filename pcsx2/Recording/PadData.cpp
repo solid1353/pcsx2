@@ -92,6 +92,30 @@ PadData::PadData(const int port, const int slot, const std::array<u8, 18> data)
 	m_l2 = {(0b00000001 & m_compactPressFlagsGroupTwo) == 0, data[16]};
 }
 
+std::array<u8, 18> PadData::ToArray() const
+{
+	return {
+		m_compactPressFlagsGroupOne,
+		m_compactPressFlagsGroupTwo,
+		std::get<0>(m_rightAnalog),
+		std::get<1>(m_rightAnalog),
+		std::get<0>(m_leftAnalog),
+		std::get<1>(m_leftAnalog),
+		std::get<1>(m_right),
+		std::get<1>(m_left),
+		std::get<1>(m_up),
+		std::get<1>(m_down),
+		std::get<1>(m_triangle),
+		std::get<1>(m_circle),
+		std::get<1>(m_cross),
+		std::get<1>(m_square),
+		std::get<1>(m_l1),
+		std::get<1>(m_r1),
+		std::get<1>(m_l2),
+		std::get<1>(m_r2),
+	};
+}
+
 void PadData::OverrideActualController() const
 {
 	PadBase* pad = Pad::GetPad(m_ext_port);

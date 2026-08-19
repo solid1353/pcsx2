@@ -14,6 +14,7 @@ public:
 	/// see - `g_key_status`
 	PadData(const int port, const int slot);
 	PadData(const int port, const int slot, const std::array<u8, 18> data);
+	std::array<u8, 18> ToArray() const;
 
 	/// Constants
 	static constexpr u8 ANALOG_VECTOR_NEUTRAL = 127;
@@ -57,4 +58,3 @@ public:
 	// Prints current PadData to the Controller Log filter which is disabled by default
 	void LogPadData() const;
 };
-

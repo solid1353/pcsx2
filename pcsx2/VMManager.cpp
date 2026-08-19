@@ -305,6 +305,7 @@ void VMManager::SetState(VMState state)
 		{
 			Host::OnVMPaused();
 			AccumulateSessionPlaytime();
+			PINEServer::AgentControl::OnVMPaused(g_FrameCount, s_frame_advance_count == 0);
 		}
 		else
 		{
@@ -1785,6 +1786,7 @@ void VMManager::Shutdown(bool save_resume_state)
 	// we'll probably already be stopping (this is how Qt calls shutdown),
 	// but just in case, so any of the stuff we call here knows we don't have a valid VM.
 	s_state.store(VMState::Stopping, std::memory_order_release);
+	PINEServer::AgentControl::OnVMShutdown();
 
 	SetTimerResolutionIncreased(false);
 
@@ -1896,6 +1898,7 @@ bool VMManager::RequestReset()
 void VMManager::Reset()
 {
 	pxAssert(HasValidVM());
+	PINEServer::AgentControl::OnVMReset();
 
 	// If we're running, we're probably going to be executing this at event test time,
 	// at vsync, which happens in the middle of event handling. Resetting everything
@@ -2915,6 +2918,7 @@ void VMManager::IdlePollUpdate()
 	PollDiscordPresence();
 
 	InputManager::PollSources();
+	PINEServer::AgentControl::ApplyOverridesAfterInputPoll();
 }
 
 void VMManager::SetPaused(bool paused)
@@ -3081,6 +3085,7 @@ void VMManager::Internal::PollInputOnCPUThread()
 {
 	Host::PumpMessagesOnCPUThread();
 	InputManager::PollSources();
+	PINEServer::AgentControl::ApplyOverridesAfterInputPoll();
 
 	if (EmuConfig.EnableRecordingTools)
 	{
