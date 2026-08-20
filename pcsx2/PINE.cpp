@@ -115,6 +115,8 @@ namespace PINEServer
 		{
 			Idle,
 			Pending,
+			AwaitingInputFrame,
+			Completing,
 			Complete,
 			Aborted,
 		};
@@ -125,6 +127,7 @@ namespace PINEServer
 			StepStatus status = StepStatus::Idle;
 			u32 start_frame = 0;
 			u32 end_frame = 0;
+			std::vector<PadStateSnapshot> previous_states;
 		};
 
 		static StepState s_step;
@@ -158,6 +161,36 @@ namespace PINEServer
 			for (const PadStateRecord& record : states)
 				m_states[record.slot] = record.state;
 			return true;
+		}
+
+		std::vector<PadStateSnapshot> OverrideState::Capture(const std::span<const PadStateRecord> states) const
+		{
+			std::vector<PadStateSnapshot> snapshot;
+			snapshot.reserve(states.size());
+			for (const PadStateRecord& record : states)
+				snapshot.push_back({record.slot, GetState(record.slot)});
+			return snapshot;
+		}
+
+		std::vector<u8> OverrideState::Restore(const std::span<const PadStateSnapshot> states)
+		{
+			std::vector<u8> released;
+			for (const PadStateSnapshot& snapshot : states)
+			{
+				if (snapshot.slot >= m_states.size())
+					continue;
+
+				if (snapshot.state.has_value())
+				{
+					m_states[snapshot.slot] = snapshot.state;
+				}
+				else if (m_states[snapshot.slot].has_value())
+				{
+					m_states[snapshot.slot].reset();
+					released.push_back(snapshot.slot);
+				}
+			}
+			return released;
 		}
 
 		std::vector<u8> OverrideState::Release(const std::span<const u8> slots)
@@ -202,6 +235,24 @@ namespace PINEServer
 		std::optional<PadStateBytes> OverrideState::GetState(const u8 slot) const
 		{
 			return slot < m_states.size() ? m_states[slot] : std::nullopt;
+		}
+
+		bool IsAgentControlAllowedForInputRecording(const bool active, const bool recording, const bool replaying)
+		{
+			return !active || (recording && !replaying);
+		}
+
+		static bool IsAgentControlAllowedForCurrentInputRecording()
+		{
+			const InputRecordingControls& controls = g_InputRecording.getControls();
+			return IsAgentControlAllowedForInputRecording(
+				g_InputRecording.isActive(), controls.isRecording(), controls.isReplaying());
+		}
+
+		static bool IsStepInProgress(const StepStatus status)
+		{
+			return status == StepStatus::Pending || status == StepStatus::AwaitingInputFrame ||
+			       status == StepStatus::Completing;
 		}
 
 		static bool ParseRecords(const std::span<const u8> payload, const size_t count_offset,
@@ -316,9 +367,10 @@ namespace PINEServer
 				std::unique_lock lock(s_mutex);
 				released = s_overrides.Release(std::span<const u8>());
 				s_has_overrides.store(false, std::memory_order_release);
-				if (s_step.status == StepStatus::Pending)
+				if (IsStepInProgress(s_step.status))
 				{
 					s_step.status = StepStatus::Aborted;
+					s_step.previous_states.clear();
 					s_step_condition.notify_all();
 				}
 			}
@@ -334,7 +386,7 @@ namespace PINEServer
 		static bool ValidateStateOperation(const std::span<const PadStateRecord> states, const bool require_paused)
 		{
 			if (!VMManager::HasValidVM() || (require_paused && VMManager::GetState() != VMState::Paused) ||
-				g_InputRecording.isActive())
+				!IsAgentControlAllowedForCurrentInputRecording())
 			{
 				return false;
 			}
@@ -384,17 +436,28 @@ namespace PINEServer
 			bool success = false;
 			Host::RunOnCPUThread(
 				[&request, ticket, &success]() {
-					if (!InstallStatesOnCPUThread(request.states, true))
+					if (!ValidateStateOperation(request.states, true))
+					{
+						ClearOverridesAndNeutralizeOnCPUThread();
 						return;
+					}
 
 					{
 						std::unique_lock lock(s_mutex);
-						if (s_step.status == StepStatus::Pending)
+						if (IsStepInProgress(s_step.status))
 						{
 							lock.unlock();
 							ClearOverridesAndNeutralizeOnCPUThread();
 							return;
 						}
+						s_step.previous_states = s_overrides.Capture(request.states);
+						if (!s_overrides.SetStates(request.states))
+						{
+							lock.unlock();
+							ClearOverridesAndNeutralizeOnCPUThread();
+							return;
+						}
+						s_has_overrides.store(true, std::memory_order_release);
 						s_step.sequence++;
 						s_step.status = StepStatus::Pending;
 						s_step.start_frame = g_FrameCount;
@@ -402,6 +465,9 @@ namespace PINEServer
 						ticket->sequence = s_step.sequence;
 						ticket->start_frame = s_step.start_frame;
 					}
+
+					for (const PadStateRecord& record : request.states)
+						ApplyPadState(record.slot, record.state);
 
 					VMManager::FrameAdvance(request.frame_count);
 					if (VMManager::GetState() != VMState::Running)
@@ -420,7 +486,7 @@ namespace PINEServer
 			// Waiting must remain off the CPU thread so frame advance can reach auto-pause; this needs proper client runtime testing.
 			std::unique_lock lock(s_mutex);
 			s_step_condition.wait(lock, [&ticket]() {
-				return s_step.sequence != ticket.sequence || s_step.status != StepStatus::Pending;
+				return s_step.sequence != ticket.sequence || !IsStepInProgress(s_step.status);
 			});
 
 			const bool success =
@@ -437,7 +503,7 @@ namespace PINEServer
 			bool success = false;
 			Host::RunOnCPUThread(
 				[slots, readback, &success]() {
-					if (!VMManager::HasValidVM() || g_InputRecording.isActive() ||
+					if (!VMManager::HasValidVM() || !IsAgentControlAllowedForCurrentInputRecording() ||
 						!std::ranges::all_of(slots, [](const u8 slot) { return IsUsablePadSlot(slot); }))
 					{
 						ClearOverridesAndNeutralizeOnCPUThread();
@@ -469,7 +535,7 @@ namespace PINEServer
 			bool success = false;
 			Host::RunOnCPUThread(
 				[slots, &success]() {
-					if (g_InputRecording.isActive())
+					if (!IsAgentControlAllowedForCurrentInputRecording())
 					{
 						ClearOverridesAndNeutralizeOnCPUThread();
 						return;
@@ -498,7 +564,7 @@ namespace PINEServer
 			if (!s_has_overrides.load(std::memory_order_acquire))
 				return;
 
-			if (g_InputRecording.isActive())
+			if (!IsAgentControlAllowedForCurrentInputRecording())
 			{
 				ClearOverridesAndNeutralizeOnCPUThread();
 				return;
@@ -553,17 +619,58 @@ namespace PINEServer
 				if (frame_advance_completed)
 				{
 					s_step.end_frame = frame_count;
-					s_step.status = StepStatus::Complete;
+					s_step.status = StepStatus::AwaitingInputFrame;
 				}
 				else
 				{
 					s_step.status = StepStatus::Aborted;
+					s_step.previous_states.clear();
 					released = s_overrides.Release(std::span<const u8>());
 					s_has_overrides.store(false, std::memory_order_release);
+					s_step_condition.notify_all();
 				}
-				s_step_condition.notify_all();
 			}
 			NeutralizeSlots(released);
+		}
+
+		void OnInputFrameProcessed()
+		{
+			if (!IsAgentControlAllowedForCurrentInputRecording())
+			{
+				ClearOverridesAndNeutralizeOnCPUThread();
+				return;
+			}
+
+			std::vector<PadStateSnapshot> previous_states;
+			std::vector<u8> released;
+			u64 sequence;
+			{
+				std::unique_lock lock(s_mutex);
+				if (s_step.status != StepStatus::AwaitingInputFrame)
+					return;
+
+				sequence = s_step.sequence;
+				previous_states = std::move(s_step.previous_states);
+				released = s_overrides.Restore(previous_states);
+				s_has_overrides.store(s_overrides.HasAny(), std::memory_order_release);
+				s_step.status = StepStatus::Completing;
+			}
+
+			for (const PadStateSnapshot& snapshot : previous_states)
+			{
+				if (snapshot.state.has_value())
+					ApplyPadState(snapshot.slot, snapshot.state.value());
+			}
+			NeutralizeSlots(released);
+
+			{
+				std::unique_lock lock(s_mutex);
+				if (s_step.sequence == sequence && s_step.status == StepStatus::Completing)
+				{
+					s_step.status = StepStatus::Complete;
+					s_step_condition.notify_all();
+				}
+			}
 		}
 	} // namespace AgentControl
 

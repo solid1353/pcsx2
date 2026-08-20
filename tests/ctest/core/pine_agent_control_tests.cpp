@@ -130,6 +130,32 @@ TEST(PINEAgentControlState, ControlsOnlySubmittedSlotsAndReleasesExplicitly)
 	EXPECT_FALSE(state.IsControlled(3));
 }
 
+TEST(PINEAgentControlState, RestoresPersistentStateAfterStepScopedInput)
+{
+	OverrideState state;
+	const PadStateRecord persistent[] = {{1, MakeState(0x10)}};
+	ASSERT_TRUE(state.SetStates(persistent));
+
+	const PadStateRecord stepped[] = {{1, MakeState(0x40)}, {3, MakeState(0x60)}};
+	const std::vector<PadStateSnapshot> snapshot = state.Capture(stepped);
+	ASSERT_TRUE(state.SetStates(stepped));
+	EXPECT_EQ(state.GetState(1), stepped[0].state);
+	EXPECT_EQ(state.GetState(3), stepped[1].state);
+
+	EXPECT_EQ(state.Restore(snapshot), (std::vector<u8>{3}));
+	EXPECT_EQ(state.GetState(1), persistent[0].state);
+	EXPECT_FALSE(state.IsControlled(3));
+}
+
+TEST(PINEAgentControlState, AllowsRecordingAndRejectsReplay)
+{
+	EXPECT_TRUE(IsAgentControlAllowedForInputRecording(false, false, true));
+	EXPECT_TRUE(IsAgentControlAllowedForInputRecording(true, true, false));
+	EXPECT_FALSE(IsAgentControlAllowedForInputRecording(true, false, true));
+	EXPECT_FALSE(IsAgentControlAllowedForInputRecording(true, false, false));
+	EXPECT_FALSE(IsAgentControlAllowedForInputRecording(true, true, true));
+}
+
 TEST(PINEAgentControlState, UsesRecordingCompatibleFullPadLayout)
 {
 	const PadStateBytes state = MakeState(0x70);

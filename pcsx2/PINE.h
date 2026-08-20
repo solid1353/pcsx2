@@ -50,6 +50,12 @@ namespace PINEServer
 			PadStateBytes state;
 		};
 
+		struct PadStateSnapshot
+		{
+			u8 slot;
+			std::optional<PadStateBytes> state;
+		};
+
 		struct ParsedStateRequest
 		{
 			std::vector<PadStateRecord> states;
@@ -80,6 +86,8 @@ namespace PINEServer
 		{
 		public:
 			bool SetStates(std::span<const PadStateRecord> states);
+			std::vector<PadStateSnapshot> Capture(std::span<const PadStateRecord> states) const;
+			std::vector<u8> Restore(std::span<const PadStateSnapshot> states);
 			std::vector<u8> Release(std::span<const u8> slots);
 			bool HasAny() const;
 			bool IsControlled(u8 slot) const;
@@ -90,6 +98,7 @@ namespace PINEServer
 		};
 
 		const PadStateBytes& GetNeutralPadState();
+		bool IsAgentControlAllowedForInputRecording(bool active, bool recording, bool replaying);
 		std::optional<ParsedStateRequest> ParseStateRequest(std::span<const u8> payload);
 		std::optional<ParsedStepRequest> ParseStepRequest(std::span<const u8> payload);
 		std::optional<ParsedSlotRequest> ParseSlotRequest(std::span<const u8> payload, bool allow_empty);
@@ -99,5 +108,6 @@ namespace PINEServer
 		void OnVMReset();
 		void OnVMShutdown();
 		void OnVMPaused(u32 frame_count, bool frame_advance_completed);
+		void OnInputFrameProcessed();
 	} // namespace AgentControl
 } // namespace PINEServer
