@@ -125,8 +125,11 @@ namespace PINEServer
 		{
 			u64 sequence = 0;
 			StepStatus status = StepStatus::Idle;
+			StepExecutionMode mode = StepExecutionMode::PausedFrameAdvance;
 			u32 start_frame = 0;
 			u32 end_frame = 0;
+			u32 captured_frames = 0;
+			std::optional<RunningStepFrameSequence> running_frames;
 			std::vector<PadStateSnapshot> previous_states;
 		};
 
@@ -143,6 +146,45 @@ namespace PINEServer
 				PadData::ANALOG_VECTOR_NEUTRAL,
 			};
 			return state;
+		}
+
+		RunningStepFrameSequence::RunningStepFrameSequence(const u32 frame_count)
+			: m_remaining_frames(frame_count)
+		{
+		}
+
+		bool RunningStepFrameSequence::BeginInputFrame()
+		{
+			if (m_remaining_frames == 0 || m_awaiting_capture)
+				return false;
+
+			m_awaiting_capture = true;
+			return true;
+		}
+
+		bool RunningStepFrameSequence::FinishInputFrame()
+		{
+			if (!m_awaiting_capture)
+				return false;
+
+			m_awaiting_capture = false;
+			m_remaining_frames--;
+			return true;
+		}
+
+		bool RunningStepFrameSequence::IsAwaitingCapture() const
+		{
+			return m_awaiting_capture;
+		}
+
+		bool RunningStepFrameSequence::IsComplete() const
+		{
+			return m_remaining_frames == 0 && !m_awaiting_capture;
+		}
+
+		bool StepExecutionRequiresFrameAdvance(const StepExecutionMode mode)
+		{
+			return mode == StepExecutionMode::PausedFrameAdvance;
 		}
 
 		bool OverrideState::SetStates(const std::span<const PadStateRecord> states)
@@ -370,6 +412,7 @@ namespace PINEServer
 				if (IsStepInProgress(s_step.status))
 				{
 					s_step.status = StepStatus::Aborted;
+					s_step.running_frames.reset();
 					s_step.previous_states.clear();
 					s_step_condition.notify_all();
 				}
@@ -428,7 +471,6 @@ namespace PINEServer
 		struct StepTicket
 		{
 			u64 sequence;
-			u32 start_frame;
 		};
 
 		static bool StartStepFromServer(const ParsedStepRequest& request, StepTicket* ticket)
@@ -436,11 +478,21 @@ namespace PINEServer
 			bool success = false;
 			Host::RunOnCPUThread(
 				[&request, ticket, &success]() {
-					if (!ValidateStateOperation(request.states, true))
+					if (!ValidateStateOperation(request.states, false))
 					{
 						ClearOverridesAndNeutralizeOnCPUThread();
 						return;
 					}
+
+					const VMState vm_state = VMManager::GetState();
+					if (vm_state != VMState::Running && vm_state != VMState::Paused)
+					{
+						ClearOverridesAndNeutralizeOnCPUThread();
+						return;
+					}
+					const StepExecutionMode mode = (vm_state == VMState::Running) ?
+				                                       StepExecutionMode::Running :
+				                                       StepExecutionMode::PausedFrameAdvance;
 
 					{
 						std::unique_lock lock(s_mutex);
@@ -460,20 +512,27 @@ namespace PINEServer
 						s_has_overrides.store(true, std::memory_order_release);
 						s_step.sequence++;
 						s_step.status = StepStatus::Pending;
+						s_step.mode = mode;
 						s_step.start_frame = g_FrameCount;
 						s_step.end_frame = g_FrameCount;
+						s_step.captured_frames = 0;
+						s_step.running_frames = (mode == StepExecutionMode::Running) ?
+					                                std::make_optional<RunningStepFrameSequence>(request.frame_count) :
+					                                std::nullopt;
 						ticket->sequence = s_step.sequence;
-						ticket->start_frame = s_step.start_frame;
 					}
 
-					for (const PadStateRecord& record : request.states)
-						ApplyPadState(record.slot, record.state);
-
-					VMManager::FrameAdvance(request.frame_count);
-					if (VMManager::GetState() != VMState::Running)
+					if (StepExecutionRequiresFrameAdvance(mode))
 					{
-						ClearOverridesAndNeutralizeOnCPUThread();
-						return;
+						for (const PadStateRecord& record : request.states)
+							ApplyPadState(record.slot, record.state);
+
+						VMManager::FrameAdvance(request.frame_count);
+						if (VMManager::GetState() != VMState::Running)
+						{
+							ClearOverridesAndNeutralizeOnCPUThread();
+							return;
+						}
 					}
 					success = true;
 				},
@@ -481,9 +540,9 @@ namespace PINEServer
 			return success;
 		}
 
-		static bool WaitForStepFromServer(const StepTicket& ticket, u32* end_frame)
+		static bool WaitForStepFromServer(const StepTicket& ticket, u32* start_frame, u32* end_frame)
 		{
-			// Waiting must remain off the CPU thread so frame advance can reach auto-pause; this needs proper client runtime testing.
+			// Waiting must remain off the CPU thread so running input frames or paused frame advance can complete.
 			std::unique_lock lock(s_mutex);
 			s_step_condition.wait(lock, [&ticket]() {
 				return s_step.sequence != ticket.sequence || !IsStepInProgress(s_step.status);
@@ -492,9 +551,15 @@ namespace PINEServer
 			const bool success =
 				(s_step.sequence == ticket.sequence && s_step.status == StepStatus::Complete);
 			if (success)
+			{
+				*start_frame = s_step.start_frame;
 				*end_frame = s_step.end_frame;
+			}
 			if (s_step.sequence == ticket.sequence)
+			{
 				s_step.status = StepStatus::Idle;
+				s_step.running_frames.reset();
+			}
 			return success;
 		}
 
@@ -571,13 +636,33 @@ namespace PINEServer
 			}
 
 			std::vector<PadStateRecord> states;
+			bool invalid_running_step = false;
 			{
 				std::unique_lock lock(s_mutex);
+				if (s_step.status == StepStatus::Pending && s_step.mode == StepExecutionMode::Running)
+				{
+					if (!s_step.running_frames.has_value() || !s_step.running_frames->BeginInputFrame())
+					{
+						invalid_running_step = true;
+					}
+					else
+					{
+						if (s_step.captured_frames == 0)
+							s_step.start_frame = g_FrameCount;
+						s_step.status = StepStatus::AwaitingInputFrame;
+					}
+				}
+
 				for (u8 slot = 0; slot < MAX_UNIFIED_SLOTS; slot++)
 				{
 					if (std::optional<PadStateBytes> state = s_overrides.GetState(slot); state.has_value())
 						states.push_back({slot, std::move(state.value())});
 				}
+			}
+			if (invalid_running_step)
+			{
+				ClearOverridesAndNeutralizeOnCPUThread();
+				return;
 			}
 
 			if (!std::ranges::all_of(states, [](const PadStateRecord& record) { return IsUsablePadSlot(record.slot); }))
@@ -613,10 +698,11 @@ namespace PINEServer
 			std::vector<u8> released;
 			{
 				std::unique_lock lock(s_mutex);
-				if (s_step.status != StepStatus::Pending)
+				if (!IsStepInProgress(s_step.status))
 					return;
 
-				if (frame_advance_completed)
+				if (s_step.mode == StepExecutionMode::PausedFrameAdvance &&
+					s_step.status == StepStatus::Pending && frame_advance_completed)
 				{
 					s_step.end_frame = frame_count;
 					s_step.status = StepStatus::AwaitingInputFrame;
@@ -624,6 +710,7 @@ namespace PINEServer
 				else
 				{
 					s_step.status = StepStatus::Aborted;
+					s_step.running_frames.reset();
 					s_step.previous_states.clear();
 					released = s_overrides.Release(std::span<const u8>());
 					s_has_overrides.store(false, std::memory_order_release);
@@ -644,6 +731,39 @@ namespace PINEServer
 			std::vector<PadStateSnapshot> previous_states;
 			std::vector<u8> released;
 			u64 sequence;
+			bool invalid_running_step = false;
+			{
+				std::unique_lock lock(s_mutex);
+				if (s_step.status != StepStatus::AwaitingInputFrame)
+					return;
+
+				if (s_step.mode == StepExecutionMode::Running)
+				{
+					if (!s_step.running_frames.has_value() || !s_step.running_frames->FinishInputFrame())
+					{
+						invalid_running_step = true;
+					}
+					else
+					{
+						s_step.captured_frames++;
+						s_step.end_frame = g_FrameCount;
+						if (!s_step.running_frames->IsComplete())
+						{
+							s_step.status = StepStatus::Pending;
+							return;
+						}
+					}
+				}
+
+				if (!invalid_running_step)
+					s_step.running_frames.reset();
+			}
+			if (invalid_running_step)
+			{
+				ClearOverridesAndNeutralizeOnCPUThread();
+				return;
+			}
+
 			{
 				std::unique_lock lock(s_mutex);
 				if (s_step.status != StepStatus::AwaitingInputFrame)
@@ -1457,8 +1577,9 @@ PINEServer::IPCBuffer PINEServer::ParseCommand(std::span<u8> buf, std::vector<u8
 					goto error;
 				}
 
+				u32 start_frame;
 				u32 end_frame;
-				if (!AgentControl::WaitForStepFromServer(ticket, &end_frame)) [[unlikely]]
+				if (!AgentControl::WaitForStepFromServer(ticket, &start_frame, &end_frame)) [[unlikely]]
 				{
 					AgentControl::HandleCommandError();
 					goto error;
@@ -1467,8 +1588,8 @@ PINEServer::IPCBuffer PINEServer::ParseCommand(std::span<u8> buf, std::vector<u8
 				buf_cnt += static_cast<u32>(request->bytes_consumed);
 				ToResultVector(ret_buffer, AgentControl::PROTOCOL_VERSION, ret_cnt);
 				ret_cnt++;
-				ToResultVector(ret_buffer, ticket.start_frame, ret_cnt);
-				ret_cnt += sizeof(ticket.start_frame);
+				ToResultVector(ret_buffer, start_frame, ret_cnt);
+				ret_cnt += sizeof(start_frame);
 				ToResultVector(ret_buffer, end_frame, ret_cnt);
 				ret_cnt += sizeof(end_frame);
 				break;

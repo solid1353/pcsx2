@@ -82,6 +82,26 @@ namespace PINEServer
 			PadStateBytes state;
 		};
 
+		enum class StepExecutionMode : u8
+		{
+			Running,
+			PausedFrameAdvance,
+		};
+
+		class RunningStepFrameSequence
+		{
+		public:
+			explicit RunningStepFrameSequence(u32 frame_count);
+			bool BeginInputFrame();
+			bool FinishInputFrame();
+			bool IsAwaitingCapture() const;
+			bool IsComplete() const;
+
+		private:
+			u32 m_remaining_frames;
+			bool m_awaiting_capture = false;
+		};
+
 		class OverrideState
 		{
 		public:
@@ -98,6 +118,7 @@ namespace PINEServer
 		};
 
 		const PadStateBytes& GetNeutralPadState();
+		bool StepExecutionRequiresFrameAdvance(StepExecutionMode mode);
 		bool IsAgentControlAllowedForInputRecording(bool active, bool recording, bool replaying);
 		std::optional<ParsedStateRequest> ParseStateRequest(std::span<const u8> payload);
 		std::optional<ParsedStepRequest> ParseStepRequest(std::span<const u8> payload);

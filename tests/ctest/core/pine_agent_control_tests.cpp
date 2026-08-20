@@ -147,6 +147,52 @@ TEST(PINEAgentControlState, RestoresPersistentStateAfterStepScopedInput)
 	EXPECT_FALSE(state.IsControlled(3));
 }
 
+TEST(PINEAgentControlState, RunningStepUsesExactlyOneCapturedInputFrameWithoutFrameAdvance)
+{
+	RunningStepFrameSequence frames(1);
+	EXPECT_FALSE(StepExecutionRequiresFrameAdvance(StepExecutionMode::Running));
+	EXPECT_TRUE(StepExecutionRequiresFrameAdvance(StepExecutionMode::PausedFrameAdvance));
+	EXPECT_FALSE(frames.IsAwaitingCapture());
+	EXPECT_FALSE(frames.IsComplete());
+
+	ASSERT_TRUE(frames.BeginInputFrame());
+	EXPECT_TRUE(frames.IsAwaitingCapture());
+	EXPECT_FALSE(frames.IsComplete());
+	EXPECT_FALSE(frames.BeginInputFrame());
+
+	ASSERT_TRUE(frames.FinishInputFrame());
+	EXPECT_FALSE(frames.IsAwaitingCapture());
+	EXPECT_TRUE(frames.IsComplete());
+	EXPECT_FALSE(frames.BeginInputFrame());
+}
+
+TEST(PINEAgentControlState, RestoresRunningStepStateOnlyAfterFinalRecordedFrame)
+{
+	OverrideState state;
+	const PadStateRecord persistent[] = {{1, MakeState(0x10)}};
+	const PadStateRecord stepped[] = {{1, MakeState(0x40)}, {3, MakeState(0x60)}};
+	ASSERT_TRUE(state.SetStates(persistent));
+	const std::vector<PadStateSnapshot> snapshot = state.Capture(stepped);
+	ASSERT_TRUE(state.SetStates(stepped));
+
+	RunningStepFrameSequence frames(2);
+	std::vector<PadStateBytes> recorded_states;
+	for (u32 frame = 0; frame < 2; frame++)
+	{
+		ASSERT_TRUE(frames.BeginInputFrame());
+		recorded_states.push_back(state.GetState(1).value());
+		ASSERT_TRUE(frames.FinishInputFrame());
+		if (!frames.IsComplete())
+			EXPECT_EQ(state.GetState(1), stepped[0].state);
+	}
+
+	ASSERT_TRUE(frames.IsComplete());
+	EXPECT_EQ(recorded_states, (std::vector<PadStateBytes>{stepped[0].state, stepped[0].state}));
+	EXPECT_EQ(state.Restore(snapshot), (std::vector<u8>{3}));
+	EXPECT_EQ(state.GetState(1), persistent[0].state);
+	EXPECT_FALSE(state.IsControlled(3));
+}
+
 TEST(PINEAgentControlState, AllowsRecordingAndRejectsReplay)
 {
 	EXPECT_TRUE(IsAgentControlAllowedForInputRecording(false, false, true));
