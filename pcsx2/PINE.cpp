@@ -187,6 +187,11 @@ namespace PINEServer
 			return mode == StepExecutionMode::PausedFrameAdvance;
 		}
 
+		u32 GetRunningStepExclusiveEndFrame(const u32 captured_frame)
+		{
+			return captured_frame + 1;
+		}
+
 		bool OverrideState::SetStates(const std::span<const PadStateRecord> states)
 		{
 			if (states.empty() || states.size() > MAX_UNIFIED_SLOTS)
@@ -746,7 +751,7 @@ namespace PINEServer
 					else
 					{
 						s_step.captured_frames++;
-						s_step.end_frame = g_FrameCount;
+						s_step.end_frame = GetRunningStepExclusiveEndFrame(g_FrameCount);
 						if (!s_step.running_frames->IsComplete())
 						{
 							s_step.status = StepStatus::Pending;

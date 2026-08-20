@@ -118,6 +118,7 @@ namespace PINEServer
 		};
 
 		const PadStateBytes& GetNeutralPadState();
+		u32 GetRunningStepExclusiveEndFrame(u32 captured_frame);
 		bool StepExecutionRequiresFrameAdvance(StepExecutionMode mode);
 		bool IsAgentControlAllowedForInputRecording(bool active, bool recording, bool replaying);
 		std::optional<ParsedStateRequest> ParseStateRequest(std::span<const u8> payload);

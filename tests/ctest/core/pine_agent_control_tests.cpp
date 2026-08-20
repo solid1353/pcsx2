@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 
 namespace
 {
@@ -164,6 +165,19 @@ TEST(PINEAgentControlState, RunningStepUsesExactlyOneCapturedInputFrameWithoutFr
 	EXPECT_FALSE(frames.IsAwaitingCapture());
 	EXPECT_TRUE(frames.IsComplete());
 	EXPECT_FALSE(frames.BeginInputFrame());
+}
+
+TEST(PINEAgentControlState, RunningStepReportsHalfOpenFrameIntervals)
+{
+	constexpr u32 one_frame_start = 100;
+	const u32 one_frame_end = GetRunningStepExclusiveEndFrame(one_frame_start);
+	EXPECT_EQ(one_frame_end - one_frame_start, 1u);
+
+	constexpr u32 wrapped_start = std::numeric_limits<u32>::max() - 1;
+	constexpr u32 wrapped_final_frame = 0;
+	const u32 wrapped_end = GetRunningStepExclusiveEndFrame(wrapped_final_frame);
+	EXPECT_EQ(wrapped_end, 1u);
+	EXPECT_EQ(wrapped_end - wrapped_start, 3u);
 }
 
 TEST(PINEAgentControlState, RestoresRunningStepStateOnlyAfterFinalRecordedFrame)
