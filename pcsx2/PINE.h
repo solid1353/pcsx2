@@ -94,12 +94,16 @@ namespace PINEServer
 			explicit RunningStepFrameSequence(u32 frame_count);
 			bool BeginInputFrame();
 			bool FinishInputFrame();
+			bool FinishRestoreBoundary();
 			bool IsAwaitingCapture() const;
+			bool IsAwaitingRestore() const;
 			bool IsComplete() const;
 
 		private:
 			u32 m_remaining_frames;
 			bool m_awaiting_capture = false;
+			bool m_awaiting_restore = false;
+			bool m_complete = false;
 		};
 
 		class OverrideState

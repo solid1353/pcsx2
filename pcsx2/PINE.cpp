@@ -116,6 +116,7 @@ namespace PINEServer
 			Idle,
 			Pending,
 			AwaitingInputFrame,
+			AwaitingRestoreBoundary,
 			Completing,
 			Complete,
 			Aborted,
@@ -155,7 +156,7 @@ namespace PINEServer
 
 		bool RunningStepFrameSequence::BeginInputFrame()
 		{
-			if (m_remaining_frames == 0 || m_awaiting_capture)
+			if (m_remaining_frames == 0 || m_awaiting_capture || m_awaiting_restore || m_complete)
 				return false;
 
 			m_awaiting_capture = true;
@@ -169,6 +170,18 @@ namespace PINEServer
 
 			m_awaiting_capture = false;
 			m_remaining_frames--;
+			if (m_remaining_frames == 0)
+				m_awaiting_restore = true;
+			return true;
+		}
+
+		bool RunningStepFrameSequence::FinishRestoreBoundary()
+		{
+			if (!m_awaiting_restore)
+				return false;
+
+			m_awaiting_restore = false;
+			m_complete = true;
 			return true;
 		}
 
@@ -177,9 +190,14 @@ namespace PINEServer
 			return m_awaiting_capture;
 		}
 
+		bool RunningStepFrameSequence::IsAwaitingRestore() const
+		{
+			return m_awaiting_restore;
+		}
+
 		bool RunningStepFrameSequence::IsComplete() const
 		{
-			return m_remaining_frames == 0 && !m_awaiting_capture;
+			return m_complete;
 		}
 
 		bool StepExecutionRequiresFrameAdvance(const StepExecutionMode mode)
@@ -299,7 +317,7 @@ namespace PINEServer
 		static bool IsStepInProgress(const StepStatus status)
 		{
 			return status == StepStatus::Pending || status == StepStatus::AwaitingInputFrame ||
-			       status == StepStatus::Completing;
+			       status == StepStatus::AwaitingRestoreBoundary || status == StepStatus::Completing;
 		}
 
 		static bool ParseRecords(const std::span<const u8> payload, const size_t count_offset,
@@ -641,9 +659,32 @@ namespace PINEServer
 			}
 
 			std::vector<PadStateRecord> states;
+			std::vector<u8> released;
+			u64 completing_sequence = 0;
+			bool complete_running_step = false;
 			bool invalid_running_step = false;
 			{
 				std::unique_lock lock(s_mutex);
+				if (s_step.status == StepStatus::AwaitingRestoreBoundary &&
+					s_step.mode == StepExecutionMode::Running)
+				{
+					// The prior interval has executed; restore before the recorder samples this new boundary.
+					if (!s_step.running_frames.has_value() || !s_step.running_frames->FinishRestoreBoundary())
+					{
+						invalid_running_step = true;
+					}
+					else
+					{
+						completing_sequence = s_step.sequence;
+						released = s_overrides.Restore(s_step.previous_states);
+						s_step.previous_states.clear();
+						s_step.running_frames.reset();
+						s_has_overrides.store(s_overrides.HasAny(), std::memory_order_release);
+						s_step.status = StepStatus::Completing;
+						complete_running_step = true;
+					}
+				}
+
 				if (s_step.status == StepStatus::Pending && s_step.mode == StepExecutionMode::Running)
 				{
 					if (!s_step.running_frames.has_value() || !s_step.running_frames->BeginInputFrame())
@@ -677,6 +718,17 @@ namespace PINEServer
 			}
 			for (const PadStateRecord& record : states)
 				ApplyPadState(record.slot, record.state);
+			NeutralizeSlots(released);
+
+			if (complete_running_step)
+			{
+				std::unique_lock lock(s_mutex);
+				if (s_step.sequence == completing_sequence && s_step.status == StepStatus::Completing)
+				{
+					s_step.status = StepStatus::Complete;
+					s_step_condition.notify_all();
+				}
+			}
 		}
 
 		void OnClientDisconnected()
@@ -736,6 +788,7 @@ namespace PINEServer
 			std::vector<PadStateSnapshot> previous_states;
 			std::vector<u8> released;
 			u64 sequence;
+			bool running_step = false;
 			bool invalid_running_step = false;
 			{
 				std::unique_lock lock(s_mutex);
@@ -744,6 +797,7 @@ namespace PINEServer
 
 				if (s_step.mode == StepExecutionMode::Running)
 				{
+					running_step = true;
 					if (!s_step.running_frames.has_value() || !s_step.running_frames->FinishInputFrame())
 					{
 						invalid_running_step = true;
@@ -752,15 +806,14 @@ namespace PINEServer
 					{
 						s_step.captured_frames++;
 						s_step.end_frame = GetRunningStepExclusiveEndFrame(g_FrameCount);
-						if (!s_step.running_frames->IsComplete())
-						{
-							s_step.status = StepStatus::Pending;
-							return;
-						}
+						// Recording has sampled this state, but gameplay consumes it until the next input boundary.
+						s_step.status = s_step.running_frames->IsAwaitingRestore() ?
+						                    StepStatus::AwaitingRestoreBoundary :
+						                    StepStatus::Pending;
 					}
 				}
 
-				if (!invalid_running_step)
+				if (!running_step && !invalid_running_step)
 					s_step.running_frames.reset();
 			}
 			if (invalid_running_step)
@@ -768,6 +821,8 @@ namespace PINEServer
 				ClearOverridesAndNeutralizeOnCPUThread();
 				return;
 			}
+			if (running_step)
+				return;
 
 			{
 				std::unique_lock lock(s_mutex);
