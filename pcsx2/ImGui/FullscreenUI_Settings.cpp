@@ -1741,7 +1741,14 @@ void FullscreenUI::SwitchToSettings()
 void FullscreenUI::SwitchToGameSettings(const std::string_view serial, u32 crc)
 {
 	s_game_settings_entry.reset();
-	s_game_settings_interface = std::make_unique<INISettingsInterface>(VMManager::GetGameSettingsPath(serial, crc),
+	const std::string filename = VMManager::GetGameSettingsPath(serial, crc);
+	if (filename.empty())
+	{
+		ShowToast(ICON_FA_TRIANGLE_EXCLAMATION,
+			FSUI_STR("The registered game settings file is missing or duplicated in the configured additional content folders."));
+		return;
+	}
+	s_game_settings_interface = std::make_unique<INISettingsInterface>(filename,
 		VMManager::GetGameSettingsSectionPrefix(serial, crc));
 	s_game_settings_interface->Load();
 	PopulatePatchesAndCheatsList(serial, crc);

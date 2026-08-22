@@ -405,21 +405,21 @@ std::string Patch::GetPnachTemplate(const std::string_view serial, u32 crc, bool
 
 std::vector<std::string> Patch::FindPatchFilesOnDisk(const std::string_view serial, u32 crc, bool cheats, bool all_crcs)
 {
-	const std::vector<std::string> directories = cheats ? EmuFolders::GetContentSearchFolders(EmuFolders::Cheats) :
-	                                                      std::vector<std::string>{EmuFolders::Patches};
-	std::vector<std::string> patterns;
 	const std::string content_alias = cheats ? EmuFolders::GetContentAlias(serial, crc) : std::string();
 	if (!content_alias.empty())
 	{
-		patterns.push_back(fmt::format("{}.pnach", content_alias));
+		if (std::string path = EmuFolders::FindContentAliasFile(content_alias, ".pnach"); !path.empty())
+			return {std::move(path)};
+		return {};
 	}
-	else
-	{
-		patterns.push_back(GetPnachTemplate(serial, crc, true, true, all_crcs));
-		patterns.push_back(GetPnachTemplate(serial, crc, false, true, false));
-		if (!serial.empty())
-			patterns.push_back(fmt::format("{}.pnach", serial));
-	}
+
+	const std::vector<std::string> directories = cheats ? EmuFolders::GetContentSearchFolders(EmuFolders::Cheats) :
+	                                                      std::vector<std::string>{EmuFolders::Patches};
+	std::vector<std::string> patterns;
+	patterns.push_back(GetPnachTemplate(serial, crc, true, true, all_crcs));
+	patterns.push_back(GetPnachTemplate(serial, crc, false, true, false));
+	if (!serial.empty())
+		patterns.push_back(fmt::format("{}.pnach", serial));
 
 	std::vector<std::string> ret;
 	for (const std::string& directory : directories)
@@ -754,7 +754,7 @@ std::string Patch::GetPnachFilename(const std::string_view serial, u32 crc, bool
 	if (cheats)
 	{
 		if (const std::string content_alias = EmuFolders::GetContentAlias(serial, crc); !content_alias.empty())
-			return Path::Combine(EmuFolders::Cheats, fmt::format("{}.pnach", content_alias));
+			return EmuFolders::FindContentAliasFile(content_alias, ".pnach");
 	}
 	return Path::Combine(cheats ? EmuFolders::Cheats : EmuFolders::Patches, GetPnachTemplate(serial, crc, true, false, false));
 }

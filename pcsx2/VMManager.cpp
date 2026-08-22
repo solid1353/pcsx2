@@ -888,15 +888,7 @@ std::string VMManager::GetGameSettingsPath(const std::string_view game_serial, u
 	if (!sanitized_serial.empty())
 	{
 		if (const std::string content_alias = EmuFolders::GetContentAlias(game_serial, game_crc); !content_alias.empty())
-		{
-			const std::string alias_filename = fmt::format("{}.ini", content_alias);
-			for (const std::string& directory : EmuFolders::GetContentSearchFolders(EmuFolders::GameSettings))
-			{
-				if (std::optional<std::string> path = FindGameSettingsFile(directory, alias_filename))
-					return std::move(path.value());
-			}
-			return Path::Combine(EmuFolders::GameSettings, alias_filename);
-		}
+			return EmuFolders::FindContentAliasFile(content_alias, ".ini");
 
 		const std::string serial_filename = fmt::format("{}.ini", sanitized_serial);
 		const std::string exact_filename = fmt::format("{}_{:08X}.ini", sanitized_serial, game_crc);
@@ -1101,8 +1093,10 @@ bool VMManager::UpdateGameSettingsLayer()
 	std::unique_ptr<INISettingsInterface> new_interface;
 	if (s_disc_crc != 0)
 	{
-		std::string filename(GetGameSettingsPath(GetSerialForGameSettings(), s_disc_crc));
-		if (!FileSystem::FileExists(filename.c_str()))
+		const std::string settings_serial = GetSerialForGameSettings();
+		const bool has_content_alias = !EmuFolders::GetContentAlias(settings_serial, s_disc_crc).empty();
+		std::string filename(GetGameSettingsPath(settings_serial, s_disc_crc));
+		if (!has_content_alias && !FileSystem::FileExists(filename.c_str()))
 		{
 			// try the legacy format (crc.ini)
 			filename = GetGameSettingsPath({}, s_disc_crc);

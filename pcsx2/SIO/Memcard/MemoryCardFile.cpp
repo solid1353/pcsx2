@@ -967,6 +967,47 @@ std::vector<AvailableMcdInfo> FileMcd_GetAvailableCards(bool include_in_use_card
 		}
 	}
 
+	std::vector<std::string> seen_aliases;
+	for (const auto& entry : EmuFolders::ContentAliases)
+	{
+		const std::string& alias = entry.second;
+		if (std::any_of(seen_aliases.begin(), seen_aliases.end(), [&alias](const std::string& seen) {
+				return StringUtil::Strcasecmp(seen.c_str(), alias.c_str()) == 0;
+			}))
+		{
+			continue;
+		}
+		seen_aliases.push_back(alias);
+
+		std::string path = EmuFolders::FindContentAliasFile(alias, ".ps2");
+		if (path.empty())
+			continue;
+
+		std::string basename(Path::GetFileName(path));
+		if (!include_in_use_cards && std::any_of(std::begin(EmuConfig.Mcd), std::end(EmuConfig.Mcd),
+				[&basename](const Pcsx2Config::McdOptions& mcd) { return mcd.Filename == basename; }))
+		{
+			continue;
+		}
+		if (std::any_of(mcds.begin(), mcds.end(), [&basename](const AvailableMcdInfo& mcd) {
+#ifdef _WIN32
+				return StringUtil::Strcasecmp(mcd.name.c_str(), basename.c_str()) == 0;
+#else
+				return mcd.name == basename;
+#endif
+			}))
+		{
+			continue;
+		}
+
+		FILESYSTEM_STAT_DATA sd;
+		if (!FileSystem::StatFile(path.c_str(), &sd) || (sd.Attributes & FILESYSTEM_FILE_ATTRIBUTE_DIRECTORY) || sd.Size < MCD_SIZE)
+			continue;
+		const bool formatted = FileMcd_IsMemoryCardFormatted(path);
+		mcds.push_back({std::move(basename), std::move(path), sd.ModificationTime, MemoryCardType::File,
+			GetMemoryCardFileTypeFromSize(sd.Size), static_cast<u32>(sd.Size), formatted});
+	}
+
 	std::sort(mcds.begin(), mcds.end(), [](auto& a, auto& b) { return a.name < b.name; });
 	return mcds;
 }
@@ -976,7 +1017,9 @@ std::optional<AvailableMcdInfo> FileMcd_GetCardInfo(const std::string_view name)
 	std::optional<AvailableMcdInfo> ret;
 
 	std::string basename(name);
-	std::string path(EmuFolders::FindPathInContentFolders(EmuFolders::MemoryCards, basename));
+	const std::string_view alias = Path::GetFileTitle(basename);
+	std::string path = EmuFolders::IsContentAlias(alias) ? EmuFolders::FindContentAliasFile(alias, ".ps2") :
+	                                                    EmuFolders::FindPathInContentFolders(EmuFolders::MemoryCards, basename);
 
 	FILESYSTEM_STAT_DATA sd;
 	if (!FileSystem::StatFile(path.c_str(), &sd))

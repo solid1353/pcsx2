@@ -2200,6 +2200,12 @@ void MainWindow::onToolsEditCheatsPatchesTriggered(bool cheats)
 		return;
 
 	const std::string path = Patch::GetPnachFilename(s_current_disc_serial.toStdString(), s_current_running_crc, cheats);
+	if (path.empty())
+	{
+		QMessageBox::critical(this, tr("Registered Content Unavailable"),
+			tr("The registered content file is missing or duplicated in the configured additional content folders."));
+		return;
+	}
 	if (!FileSystem::FileExists(path.c_str()))
 	{
 		if (QMessageBox::question(this, tr("Confirm File Creation"),

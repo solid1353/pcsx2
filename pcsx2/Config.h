@@ -1481,6 +1481,8 @@ namespace EmuFolders
 	void LoadContentAliases(SettingsInterface& si);
 	bool EnsureFoldersExist();
 	std::string GetContentAlias(std::string_view serial, u32 crc);
+	bool IsContentAlias(std::string_view alias);
+	std::string FindContentAliasFile(std::string_view alias, std::string_view extension);
 	std::vector<std::string> GetContentSearchFolders(const std::string& primary_folder);
 	std::string FindPathInContentFolders(const std::string& primary_folder, std::string_view relative_path);
 	bool IsInputRecordingPathValid(std::string_view path);

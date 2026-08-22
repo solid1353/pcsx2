@@ -664,6 +664,12 @@ void SettingsWindow::openGamePropertiesDialog(const GameList::Entry* game, const
 	const std::string_view settings_serial = !is_elf ? std::string_view(serial) : std::string_view();
 	std::string filename = VMManager::GetGameSettingsPath(settings_serial, disc_crc);
 	std::string section_prefix = VMManager::GetGameSettingsSectionPrefix(settings_serial, disc_crc);
+	if (filename.empty())
+	{
+		QMessageBox::critical(nullptr, tr("Registered Content Unavailable"),
+			tr("The registered game settings file is missing or duplicated in the configured additional content folders."));
+		return;
+	}
 
 	// check for an existing dialog with this filename
 	for (SettingsWindow* dialog : s_open_game_properties_dialogs)

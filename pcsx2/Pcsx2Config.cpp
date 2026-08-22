@@ -2092,6 +2092,10 @@ std::string Pcsx2Config::FullpathToMcd(uint slot) const
 	if (slot == 0 && !CurrentMemoryCardPath.empty())
 		return CurrentMemoryCardPath;
 
+	const std::string_view alias = Path::GetFileTitle(Mcd[slot].Filename);
+	if (EmuFolders::IsContentAlias(alias))
+		return EmuFolders::FindContentAliasFile(alias, ".ps2");
+
 	return EmuFolders::FindPathInContentFolders(EmuFolders::MemoryCards, Mcd[slot].Filename);
 }
 
@@ -2361,6 +2365,51 @@ std::string EmuFolders::GetContentAlias(const std::string_view serial, const u32
 			return alias;
 	}
 	return find_alias(serial);
+}
+
+bool EmuFolders::IsContentAlias(const std::string_view alias)
+{
+	const std::string alias_string(alias);
+	return std::any_of(ContentAliases.begin(), ContentAliases.end(), [&alias_string](const auto& entry) {
+		return StringUtil::Strcasecmp(entry.second.c_str(), alias_string.c_str()) == 0;
+	});
+}
+
+std::string EmuFolders::FindContentAliasFile(const std::string_view alias, const std::string_view extension)
+{
+	if (!IsContentAlias(alias))
+		return {};
+
+	std::string bundle;
+	for (const std::string& folder : AdditionalContentFolders)
+	{
+		const std::string path = Path::Combine(Path::Combine(folder, "games"), alias);
+		if (!FileSystem::DirectoryExists(path.c_str()))
+			continue;
+		if (!bundle.empty() && !PathsEqual(bundle, path))
+		{
+			Console.Error("Registered content alias '%.*s' exists in multiple additional content folders; refusing ambiguous content.",
+				static_cast<int>(alias.size()), alias.data());
+			return {};
+		}
+		bundle = path;
+	}
+
+	if (bundle.empty())
+	{
+		Console.Error("Registered content alias '%.*s' has no bundle in the additional content folders.",
+			static_cast<int>(alias.size()), alias.data());
+		return {};
+	}
+
+	const std::string result = Path::Combine(bundle, fmt::format("{}{}", alias, extension));
+	if (!FileSystem::FileExists(result.c_str()))
+	{
+		Console.Error("Registered content alias '%.*s' is missing its '%.*s' file.",
+			static_cast<int>(alias.size()), alias.data(), static_cast<int>(extension.size()), extension.data());
+		return {};
+	}
+	return result;
 }
 
 void EmuFolders::LoadConfig(SettingsInterface& si)
