@@ -114,7 +114,7 @@ TEST(Patch, UsesCanonicalSectionNameForHierarchyAndSettings)
 	EXPECT_EQ(info.GetNamePart(), "Skip Intro");
 }
 
-TEST(Patch, CustomPnachReplacesAutomaticPnachLoading)
+TEST(Patch, CustomPnachFilesReplaceAutomaticLoadingInOrder)
 {
 	const std::filesystem::path test_directory = std::filesystem::current_path() /
 	                                             ("patch-pnach-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -129,7 +129,7 @@ TEST(Patch, CustomPnachReplacesAutomaticPnachLoading)
 		std::vector<std::string> additional_content_folders;
 		~Cleanup()
 		{
-			Patch::ClearPnachOverridePath();
+			Patch::ClearPnachOverridePaths();
 			EmuFolders::Cheats = std::move(cheats_directory);
 			EmuFolders::AdditionalContentFolders = std::move(additional_content_folders);
 			std::error_code error;
@@ -138,15 +138,19 @@ TEST(Patch, CustomPnachReplacesAutomaticPnachLoading)
 	} cleanup{test_directory, old_cheats_directory, old_additional_content_folders};
 
 	const std::filesystem::path automatic_path = test_directory / "SLUS-00000_12345678.pnach";
-	const std::filesystem::path custom_path = test_directory / "arbitrary custom file.txt";
+	const std::filesystem::path first_custom_path = test_directory / "first arbitrary custom file.txt";
+	const std::filesystem::path second_custom_path = test_directory / "second arbitrary custom file.pnach";
 	{
 		std::ofstream automatic(automatic_path);
 		automatic << "[Automatic]\npatch=1,EE,00100000,word,00000001\n";
-		std::ofstream custom(custom_path);
-		custom << "[+Custom\\Always]\npatch=1,EE,00100004,word,00000002\n";
+		std::ofstream first_custom(first_custom_path);
+		first_custom << "[+Custom\\First]\npatch=1,EE,00100004,word,00000002\n";
+		std::ofstream second_custom(second_custom_path);
+		second_custom << "[+Custom\\Second]\npatch=1,EE,00100004,word,00000003\n";
 	}
 	ASSERT_TRUE(std::filesystem::is_regular_file(automatic_path));
-	ASSERT_TRUE(std::filesystem::is_regular_file(custom_path));
+	ASSERT_TRUE(std::filesystem::is_regular_file(first_custom_path));
+	ASSERT_TRUE(std::filesystem::is_regular_file(second_custom_path));
 
 	EmuFolders::Cheats = test_directory.string();
 	EmuFolders::AdditionalContentFolders.clear();
@@ -154,16 +158,16 @@ TEST(Patch, CustomPnachReplacesAutomaticPnachLoading)
 	ASSERT_EQ(info.size(), 1u);
 	EXPECT_EQ(info[0].name, "Automatic");
 
-	EXPECT_FALSE(Patch::SetPnachOverridePath((test_directory / "missing.pnach").string()));
-	ASSERT_TRUE(Patch::SetPnachOverridePath(custom_path.string()));
-	EXPECT_FALSE(Patch::SetPnachOverridePath(automatic_path.string()));
-	ASSERT_TRUE(Patch::GetPnachOverridePath().has_value());
-	EXPECT_EQ(*Patch::GetPnachOverridePath(), custom_path.string());
+	EXPECT_FALSE(Patch::AddPnachOverridePath((test_directory / "missing.pnach").string()));
+	ASSERT_TRUE(Patch::AddPnachOverridePath(first_custom_path.string()));
+	ASSERT_TRUE(Patch::AddPnachOverridePath(second_custom_path.string()));
 
 	info = Patch::GetPatchInfo("SLUS-00000", 0x12345678, true, false, nullptr);
-	ASSERT_EQ(info.size(), 1u);
-	EXPECT_EQ(info[0].name, "Custom\\Always");
+	ASSERT_EQ(info.size(), 2u);
+	EXPECT_EQ(info[0].name, "Custom\\First");
 	EXPECT_EQ(info[0].activation_mode, Patch::PatchActivationMode::ForcedEnabled);
+	EXPECT_EQ(info[1].name, "Custom\\Second");
+	EXPECT_EQ(info[1].activation_mode, Patch::PatchActivationMode::ForcedEnabled);
 	EXPECT_TRUE(Patch::GetPatchInfo("SLUS-00000", 0x12345678, false, false, nullptr).empty());
 }
 

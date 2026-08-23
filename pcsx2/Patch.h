@@ -173,11 +173,10 @@ namespace Patch
 	extern const char* PATCH_ENABLE_CONFIG_KEY;
 	extern const char* PATCH_DISABLE_CONFIG_KEY;
 
-	/// Sets a process-local PNACH path which replaces automatic PNACH discovery.
-	/// Returns false if the path is not a file or an override was already set.
-	extern bool SetPnachOverridePath(std::string path);
-	extern void ClearPnachOverridePath();
-	extern const std::optional<std::string>& GetPnachOverridePath();
+	/// Adds a process-local PNACH path. When any paths are present, they replace automatic PNACH discovery
+	/// and are loaded in insertion order. Returns false if the path is not a file.
+	extern bool AddPnachOverridePath(std::string path);
+	extern void ClearPnachOverridePaths();
 
 	/// Adds a process-local executable PNACH line to apply after file-based PNACHs.
 	/// Returns false if the line is not accepted by the existing PNACH parser.

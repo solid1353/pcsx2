@@ -138,7 +138,7 @@ namespace Patch
 	static std::vector<const PatchCommand*> s_active_patches;
 	static std::vector<DynamicPatch> s_active_gamedb_dynamic_patches;
 	static std::vector<DynamicPatch> s_active_pnach_dynamic_patches;
-	static std::optional<std::string> s_pnach_override_path;
+	static std::vector<std::string> s_pnach_override_paths;
 	static std::vector<std::string> s_pnach_lines;
 	static std::vector<std::string> s_enabled_cheats;
 	static std::vector<std::string> s_enabled_patches;
@@ -456,21 +456,24 @@ bool Patch::ContainsPatchName(const std::vector<PatchInfo>& patches, const std::
 template <typename F>
 void Patch::EnumeratePnachFiles(const std::string_view serial, u32 crc, bool cheats, bool for_ui, const F& f)
 {
-	if (s_pnach_override_path.has_value())
+	if (!s_pnach_override_paths.empty())
 	{
-		// A custom PNACH is treated as a cheat file so it uses the same section
+		// Custom PNACHs are treated as cheat files so they use the same section
 		// activation rules and global cheat enable setting as normal cheat PNACHs.
 		if (!cheats)
 			return;
 
-		std::optional<std::string> contents = FileSystem::ReadFileToString(s_pnach_override_path->c_str());
-		if (!contents.has_value())
+		for (const std::string& path : s_pnach_override_paths)
 		{
-			Console.Error("Patch: Failed to read custom PNACH file '%s'.", s_pnach_override_path->c_str());
-			return;
-		}
+			std::optional<std::string> contents = FileSystem::ReadFileToString(path.c_str());
+			if (!contents.has_value())
+			{
+				Console.Error("Patch: Failed to read custom PNACH file '%s'.", path.c_str());
+				continue;
+			}
 
-		f(*s_pnach_override_path, std::move(contents.value()));
+			f(path, std::move(contents.value()));
+		}
 		return;
 	}
 
@@ -515,23 +518,18 @@ void Patch::EnumeratePnachFiles(const std::string_view serial, u32 crc, bool che
 		f(std::move(zip_filename), std::move(pnach_data.value()));
 }
 
-bool Patch::SetPnachOverridePath(std::string path)
+bool Patch::AddPnachOverridePath(std::string path)
 {
-	if (s_pnach_override_path.has_value() || path.empty() || !FileSystem::FileExists(path.c_str()))
+	if (path.empty() || !FileSystem::FileExists(path.c_str()))
 		return false;
 
-	s_pnach_override_path = std::move(path);
+	s_pnach_override_paths.push_back(std::move(path));
 	return true;
 }
 
-void Patch::ClearPnachOverridePath()
+void Patch::ClearPnachOverridePaths()
 {
-	s_pnach_override_path.reset();
-}
-
-const std::optional<std::string>& Patch::GetPnachOverridePath()
-{
-	return s_pnach_override_path;
+	s_pnach_override_paths.clear();
 }
 
 bool Patch::AddPnachLine(std::string line)

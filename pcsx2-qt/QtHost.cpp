@@ -2225,7 +2225,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -read-only-settings: Prevents settings INI writes for this process.\n");
 	std::fprintf(stderr, "  -discard-memory-card-writes: Reports memory card writes as successful without changing card contents.\n");
 	std::fprintf(stderr, "  -memory-card <path>: Uses path as the slot 1 memory card without changing persistent settings.\n");
-	std::fprintf(stderr, "  -pnach <path>: Uses only the supplied PNACH file instead of automatic CRC-PNACH loading.\n");
+	std::fprintf(stderr, "  -pnach <path>: Uses supplied PNACH files in order instead of automatic CRC-PNACH loading. May be repeated.\n");
 	std::fprintf(stderr, "  -pnach-line <line>: Appends an executable PNACH line after file-based PNACHs. May be repeated.\n");
 	std::fprintf(stderr, "  -portable: Force enable portable mode to store data in local PCSX2 path instead of the default configuration path. Overrides '-datapath'.\n");
 	std::fprintf(stderr, "  -datapath <path>: Specify the directory to be used for all application data.\n");
@@ -2355,13 +2355,6 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 						QStringLiteral("-pnach requires a file path."));
 					return false;
 				}
-				if (Patch::GetPnachOverridePath().has_value())
-				{
-					QMessageBox::critical(nullptr, QStringLiteral("Error"),
-						QStringLiteral("-pnach may only be specified once."));
-					return false;
-				}
-
 				const QFileInfo path(*it);
 				if (!path.isFile())
 				{
@@ -2371,7 +2364,7 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 				}
 
 				const std::string absolute_path = QDir::toNativeSeparators(path.absoluteFilePath()).toStdString();
-				if (!Patch::SetPnachOverridePath(absolute_path))
+				if (!Patch::AddPnachOverridePath(absolute_path))
 				{
 					QMessageBox::critical(nullptr, QStringLiteral("Error"),
 						QStringLiteral("Could not use PNACH file: %1").arg(path.absoluteFilePath()));
