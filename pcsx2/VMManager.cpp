@@ -306,6 +306,7 @@ void VMManager::SetState(VMState state)
 			Host::OnVMPaused();
 			AccumulateSessionPlaytime();
 			PINEServer::AgentControl::OnVMPaused(g_FrameCount, s_frame_advance_count == 0);
+			PINEServer::ReplayAnalysis::OnVMPaused(g_FrameCount, s_frame_advance_count == 0);
 		}
 		else
 		{
@@ -1781,6 +1782,7 @@ void VMManager::Shutdown(bool save_resume_state)
 	// but just in case, so any of the stuff we call here knows we don't have a valid VM.
 	s_state.store(VMState::Stopping, std::memory_order_release);
 	PINEServer::AgentControl::OnVMShutdown();
+	PINEServer::ReplayAnalysis::OnVMShutdown();
 
 	SetTimerResolutionIncreased(false);
 
@@ -1893,6 +1895,7 @@ void VMManager::Reset()
 {
 	pxAssert(HasValidVM());
 	PINEServer::AgentControl::OnVMReset();
+	PINEServer::ReplayAnalysis::OnVMReset();
 
 	// If we're running, we're probably going to be executing this at event test time,
 	// at vsync, which happens in the middle of event handling. Resetting everything
@@ -3098,6 +3101,7 @@ void VMManager::Internal::PollInputOnCPUThread()
 		g_InputRecording.handleControllerDataUpdate();
 	}
 
+	PINEServer::ReplayAnalysis::OnInputFrameProcessed();
 	PINEServer::AgentControl::OnInputFrameProcessed();
 }
 

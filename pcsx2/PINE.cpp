@@ -18,6 +18,7 @@
 #include "VMManager.h"
 #include "vtlb.h"
 #include "common/Error.h"
+#include "common/Path.h"
 #include "common/Threading.h"
 
 #include <algorithm>
@@ -854,6 +855,237 @@ namespace PINEServer
 		}
 	} // namespace AgentControl
 
+	namespace ReplayAnalysis
+	{
+		static std::mutex s_mutex;
+		static std::condition_variable s_step_condition;
+
+		enum class StepStatus
+		{
+			Idle,
+			Pending,
+			Complete,
+			Aborted,
+		};
+
+		struct StepState
+		{
+			u64 sequence = 0;
+			StepStatus status = StepStatus::Idle;
+			u32 requested_vblanks = 0;
+			ReplayStepResult result = {};
+		};
+
+		static StepState s_step;
+
+		bool IsReadOnlyReplay(const bool active, const bool recording, const bool replaying)
+		{
+			return active && !recording && replaying;
+		}
+
+		static bool IsCurrentInputRecordingReadOnlyReplay()
+		{
+			const InputRecordingControls& controls = g_InputRecording.getControls();
+			return IsReadOnlyReplay(g_InputRecording.isActive(), controls.isRecording(), controls.isReplaying());
+		}
+
+		bool ReplayStepFits(const u32 replay_frame, const u32 total_frames, const u32 vblank_count)
+		{
+			return vblank_count > 0 && replay_frame <= total_frames && vblank_count <= (total_frames - replay_frame);
+		}
+
+		bool ReplayStepIntervalsMatch(const ReplayStepResult& result, const u32 vblank_count)
+		{
+			return (result.end_replay_frame - result.start_replay_frame) == vblank_count &&
+			       (result.end_vblank - result.start_vblank) == vblank_count;
+		}
+
+		bool IsScreenshotPathValid(const std::string_view path)
+		{
+			return !path.empty() && path.size() <= MAX_SCREENSHOT_PATH_SIZE && path.find('\0') == std::string_view::npos &&
+			       Path::IsAbsolute(path);
+		}
+
+		std::optional<ParsedStepRequest> ParseStepRequest(const std::span<const u8> payload)
+		{
+			if (payload.size() < 5 || payload[0] != PROTOCOL_VERSION)
+				return std::nullopt;
+
+			ParsedStepRequest request;
+			std::memcpy(&request.vblank_count, payload.data() + 1, sizeof(request.vblank_count));
+			if (request.vblank_count == 0)
+				return std::nullopt;
+			request.bytes_consumed = 5;
+			return request;
+		}
+
+		std::optional<ParsedScreenshotRequest> ParseScreenshotRequest(const std::span<const u8> payload)
+		{
+			if (payload.size() < 5 || payload[0] != PROTOCOL_VERSION)
+				return std::nullopt;
+
+			u32 path_size;
+			std::memcpy(&path_size, payload.data() + 1, sizeof(path_size));
+			if (path_size == 0 || path_size > MAX_SCREENSHOT_PATH_SIZE || payload.size() < 5 + path_size)
+				return std::nullopt;
+
+			ParsedScreenshotRequest request;
+			request.path.assign(reinterpret_cast<const char*>(payload.data() + 5), path_size);
+			request.bytes_consumed = 5 + path_size;
+			if (!IsScreenshotPathValid(request.path))
+				return std::nullopt;
+			return request;
+		}
+
+		bool QueryStatusFromServer(ReplayStatus* status)
+		{
+			bool success = false;
+			Host::RunOnCPUThread(
+				[status, &success]() {
+					if (!VMManager::HasValidVM() || !IsCurrentInputRecordingReadOnlyReplay())
+						return;
+
+					status->replay_frame = g_InputRecording.getFrameCounter();
+					status->total_frames = g_InputRecording.getData().getTotalFrames();
+					status->vblank = g_FrameCount;
+					success = true;
+				},
+				true);
+			return success;
+		}
+
+		static void AbortStep()
+		{
+			std::unique_lock lock(s_mutex);
+			if (s_step.status == StepStatus::Pending)
+			{
+				s_step.status = StepStatus::Aborted;
+				s_step_condition.notify_all();
+			}
+		}
+
+		bool StartStepFromServer(const ParsedStepRequest& request, StepTicket* ticket)
+		{
+			bool success = false;
+			Host::RunOnCPUThread(
+				[&request, ticket, &success]() {
+					if (!VMManager::HasValidVM() || VMManager::GetState() != VMState::Paused ||
+						!IsCurrentInputRecordingReadOnlyReplay())
+					{
+						return;
+					}
+
+					const u32 replay_frame = g_InputRecording.getFrameCounter();
+					const u32 total_frames = g_InputRecording.getData().getTotalFrames();
+					if (!ReplayStepFits(replay_frame, total_frames, request.vblank_count))
+						return;
+
+					{
+						std::unique_lock lock(s_mutex);
+						if (s_step.status == StepStatus::Pending)
+							return;
+
+						s_step.sequence++;
+						s_step.status = StepStatus::Pending;
+						s_step.requested_vblanks = request.vblank_count;
+						s_step.result = {replay_frame, replay_frame, g_FrameCount, g_FrameCount};
+						ticket->sequence = s_step.sequence;
+					}
+
+					VMManager::FrameAdvance(request.vblank_count);
+					if (VMManager::GetState() != VMState::Running)
+					{
+						AbortStep();
+						return;
+					}
+					success = true;
+				},
+				true);
+			return success;
+		}
+
+		bool WaitForStepFromServer(const StepTicket& ticket, ReplayStepResult* result)
+		{
+			std::unique_lock lock(s_mutex);
+			s_step_condition.wait(lock, [&ticket]() {
+				return s_step.sequence != ticket.sequence || s_step.status != StepStatus::Pending;
+			});
+
+			const bool success = (s_step.sequence == ticket.sequence && s_step.status == StepStatus::Complete);
+			if (success)
+				*result = s_step.result;
+			if (s_step.sequence == ticket.sequence)
+				s_step.status = StepStatus::Idle;
+			return success;
+		}
+
+		bool SaveScreenshotFromServer(std::string path)
+		{
+			if (!IsScreenshotPathValid(path))
+				return false;
+
+			bool success = false;
+			Host::RunOnCPUThread(
+				[path = std::move(path), &success]() {
+					if (!VMManager::HasValidVM() || VMManager::GetState() != VMState::Paused ||
+						!IsCurrentInputRecordingReadOnlyReplay())
+					{
+						return;
+					}
+
+					Error error;
+					success = SaveState_SaveScreenshotToFile(path.c_str(), &error);
+				},
+				true);
+			return success;
+		}
+
+		void OnVMPaused(const u32 vblank, const bool frame_advance_completed)
+		{
+			std::unique_lock lock(s_mutex);
+			if (s_step.status != StepStatus::Pending)
+				return;
+
+			if (!frame_advance_completed)
+			{
+				s_step.status = StepStatus::Aborted;
+				s_step_condition.notify_all();
+				return;
+			}
+
+			s_step.result.end_vblank = vblank;
+		}
+
+		void OnInputFrameProcessed()
+		{
+			std::unique_lock lock(s_mutex);
+			if (s_step.status != StepStatus::Pending || VMManager::GetState() != VMState::Paused)
+				return;
+
+			s_step.result.end_replay_frame = g_InputRecording.getFrameCounter();
+			s_step.status =
+				(IsCurrentInputRecordingReadOnlyReplay() && ReplayStepIntervalsMatch(s_step.result, s_step.requested_vblanks)) ?
+					StepStatus::Complete :
+					StepStatus::Aborted;
+			s_step_condition.notify_all();
+		}
+
+		void OnClientDisconnected()
+		{
+			AbortStep();
+		}
+
+		void OnVMReset()
+		{
+			AbortStep();
+		}
+
+		void OnVMShutdown()
+		{
+			AbortStep();
+		}
+	} // namespace ReplayAnalysis
+
 	static std::thread s_thread;
 	static int s_slot;
 
@@ -933,6 +1165,9 @@ namespace PINEServer
 		MsgAgentStep = static_cast<u8>(AgentControl::Opcode::Step), /**< Atomically installs pad states and advances frames. */
 		MsgAgentGetStates = static_cast<u8>(AgentControl::Opcode::GetStates), /**< Reads effective full-pad states. */
 		MsgAgentRelease = static_cast<u8>(AgentControl::Opcode::Release), /**< Releases and neutralizes pad overrides. */
+		MsgReplayStatus = static_cast<u8>(ReplayAnalysis::Opcode::Status), /**< Reads the active replay and VBlank positions. */
+		MsgReplayStep = static_cast<u8>(ReplayAnalysis::Opcode::Step), /**< Advances a paused read-only replay by exact VBlanks. */
+		MsgReplayScreenshot = static_cast<u8>(ReplayAnalysis::Opcode::Screenshot), /**< Saves a paused replay screenshot to an exact path. */
 		MsgUnimplemented = 0xFF /**< Unimplemented IPC message. */
 	};
 
@@ -1197,6 +1432,7 @@ void PINEServer::MainLoop()
 
 		ClientLoop();
 		AgentControl::OnClientDisconnected();
+		ReplayAnalysis::OnClientDisconnected();
 
 		Console.WriteLn("PINE: Client disconnected.");
 		safe_close_portable(s_msgsock);
@@ -1704,6 +1940,69 @@ PINEServer::IPCBuffer PINEServer::ParseCommand(std::span<u8> buf, std::vector<u8
 
 				buf_cnt += static_cast<u32>(request->bytes_consumed);
 				ToResultVector(ret_buffer, AgentControl::PROTOCOL_VERSION, ret_cnt);
+				ret_cnt++;
+				break;
+			}
+			case MsgReplayStatus:
+			{
+				if (!SafetyChecks(buf_cnt, 1, ret_cnt, 13, buf_size) || buf[buf_cnt] != ReplayAnalysis::PROTOCOL_VERSION)
+					goto error;
+
+				ReplayAnalysis::ReplayStatus status;
+				if (!ReplayAnalysis::QueryStatusFromServer(&status))
+					goto error;
+
+				buf_cnt++;
+				ToResultVector(ret_buffer, ReplayAnalysis::PROTOCOL_VERSION, ret_cnt);
+				ret_cnt++;
+				ToResultVector(ret_buffer, status.replay_frame, ret_cnt);
+				ret_cnt += sizeof(status.replay_frame);
+				ToResultVector(ret_buffer, status.total_frames, ret_cnt);
+				ret_cnt += sizeof(status.total_frames);
+				ToResultVector(ret_buffer, status.vblank, ret_cnt);
+				ret_cnt += sizeof(status.vblank);
+				break;
+			}
+			case MsgReplayStep:
+			{
+				const std::optional<ReplayAnalysis::ParsedStepRequest> request =
+					ReplayAnalysis::ParseStepRequest(buf.subspan(buf_cnt, buf_size - buf_cnt));
+				if (!request.has_value() || !SafetyChecks(buf_cnt, static_cast<int>(request->bytes_consumed), ret_cnt, 17, buf_size))
+					goto error;
+
+				ReplayAnalysis::StepTicket ticket;
+				if (!ReplayAnalysis::StartStepFromServer(request.value(), &ticket))
+					goto error;
+
+				ReplayAnalysis::ReplayStepResult result;
+				if (!ReplayAnalysis::WaitForStepFromServer(ticket, &result))
+					goto error;
+
+				buf_cnt += static_cast<u32>(request->bytes_consumed);
+				ToResultVector(ret_buffer, ReplayAnalysis::PROTOCOL_VERSION, ret_cnt);
+				ret_cnt++;
+				ToResultVector(ret_buffer, result.start_replay_frame, ret_cnt);
+				ret_cnt += sizeof(result.start_replay_frame);
+				ToResultVector(ret_buffer, result.end_replay_frame, ret_cnt);
+				ret_cnt += sizeof(result.end_replay_frame);
+				ToResultVector(ret_buffer, result.start_vblank, ret_cnt);
+				ret_cnt += sizeof(result.start_vblank);
+				ToResultVector(ret_buffer, result.end_vblank, ret_cnt);
+				ret_cnt += sizeof(result.end_vblank);
+				break;
+			}
+			case MsgReplayScreenshot:
+			{
+				const std::optional<ReplayAnalysis::ParsedScreenshotRequest> request =
+					ReplayAnalysis::ParseScreenshotRequest(buf.subspan(buf_cnt, buf_size - buf_cnt));
+				if (!request.has_value() || !SafetyChecks(buf_cnt, static_cast<int>(request->bytes_consumed), ret_cnt, 1, buf_size) ||
+					!ReplayAnalysis::SaveScreenshotFromServer(request->path))
+				{
+					goto error;
+				}
+
+				buf_cnt += static_cast<u32>(request->bytes_consumed);
+				ToResultVector(ret_buffer, ReplayAnalysis::PROTOCOL_VERSION, ret_cnt);
 				ret_cnt++;
 				break;
 			}

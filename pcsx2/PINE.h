@@ -11,6 +11,8 @@
 #include <array>
 #include <optional>
 #include <span>
+#include <string>
+#include <string_view>
 #include <vector>
 
 // PINE uses a concept of "slot" to be able to communicate with multiple
@@ -136,4 +138,65 @@ namespace PINEServer
 		void OnVMPaused(u32 frame_count, bool frame_advance_completed);
 		void OnInputFrameProcessed();
 	} // namespace AgentControl
+
+	namespace ReplayAnalysis
+	{
+		constexpr u8 PROTOCOL_VERSION = 1;
+		constexpr size_t MAX_SCREENSHOT_PATH_SIZE = 32768;
+
+		enum class Opcode : u8
+		{
+			Status = 0x1A,
+			Step = 0x1B,
+			Screenshot = 0x1C,
+		};
+
+		struct ReplayStatus
+		{
+			u32 replay_frame;
+			u32 total_frames;
+			u32 vblank;
+		};
+
+		struct ParsedStepRequest
+		{
+			u32 vblank_count;
+			size_t bytes_consumed;
+		};
+
+		struct ParsedScreenshotRequest
+		{
+			std::string path;
+			size_t bytes_consumed;
+		};
+
+		struct ReplayStepResult
+		{
+			u32 start_replay_frame;
+			u32 end_replay_frame;
+			u32 start_vblank;
+			u32 end_vblank;
+		};
+
+		struct StepTicket
+		{
+			u64 sequence;
+		};
+
+		bool IsReadOnlyReplay(bool active, bool recording, bool replaying);
+		bool ReplayStepFits(u32 replay_frame, u32 total_frames, u32 vblank_count);
+		bool ReplayStepIntervalsMatch(const ReplayStepResult& result, u32 vblank_count);
+		bool IsScreenshotPathValid(std::string_view path);
+		std::optional<ParsedStepRequest> ParseStepRequest(std::span<const u8> payload);
+		std::optional<ParsedScreenshotRequest> ParseScreenshotRequest(std::span<const u8> payload);
+		bool QueryStatusFromServer(ReplayStatus* status);
+		bool StartStepFromServer(const ParsedStepRequest& request, StepTicket* ticket);
+		bool WaitForStepFromServer(const StepTicket& ticket, ReplayStepResult* result);
+		bool SaveScreenshotFromServer(std::string path);
+		void OnClientDisconnected();
+		void OnVMReset();
+		void OnVMShutdown();
+		void OnVMPaused(u32 vblank, bool frame_advance_completed);
+		void OnInputFrameProcessed();
+	} // namespace ReplayAnalysis
 } // namespace PINEServer
