@@ -271,7 +271,7 @@ constexpr size_t SI_MAX_FILE_SIZE = 1024ULL * 1024ULL * 1024ULL;
 #define SI_UTF8_SIGNATURE     "\xEF\xBB\xBF"
 
 #ifdef _WIN32
-# define SI_NEWLINE_A   "\r\n"
+# define SI_NEWLINE_A   "\n"
 # define SI_NEWLINE_W   L"\r\n"
 #else // !_WIN32
 # define SI_NEWLINE_A   "\n"
