@@ -100,6 +100,7 @@ static bool s_surfaceless_mode = false;
 static bool s_start_big_picture_mode = false;
 static bool s_start_fullscreen = false;
 static bool s_center_display_window = false;
+static bool s_center_display_window_pending = false;
 static bool s_test_config_and_exit = false;
 static bool s_run_setup_wizard = false;
 static bool s_cleanup_after_update = false;
@@ -1022,6 +1023,7 @@ void Host::RequestResizeHostDisplay(s32 width, s32 height)
 
 void Host::OnVMStarting()
 {
+	s_center_display_window_pending = s_center_display_window;
 	g_emu_thread->stopBackgroundControllerPollTimer();
 	emit g_emu_thread->onVMStarting();
 }
@@ -1034,6 +1036,7 @@ void Host::OnVMStarted()
 
 void Host::OnVMDestroyed()
 {
+	s_center_display_window_pending = false;
 	emit g_emu_thread->onVMStopped();
 	g_emu_thread->startBackgroundControllerPollTimer();
 }
@@ -1115,6 +1118,11 @@ void EmuThread::updatePerformanceMetrics(bool force)
 	const float vfps = std::round(PerformanceMetrics::GetFPS());
 	int iwidth, iheight;
 	GSgetInternalResolution(&iwidth, &iheight);
+	if (s_center_display_window_pending && iwidth > 0 && iheight > 0)
+	{
+		s_center_display_window_pending = false;
+		VMManager::RequestDisplaySize(0.0f);
+	}
 
 	if (iwidth != m_last_internal_width || iheight != m_last_internal_height || upscale != m_last_upscale ||
 		speed != m_last_speed || gpu_usage != m_last_gpu_usage || gfps != m_last_game_fps || vfps != m_last_video_fps || renderer != m_last_renderer ||
@@ -2252,7 +2260,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -input-recording-create <path>: Creates at an exact absolute path or a path relative to the primary InputRecordings folder.\n");
 	std::fprintf(stderr, "  -fullscreen: Enters fullscreen mode immediately after starting.\n");
 	std::fprintf(stderr, "  -nofullscreen: Prevents fullscreen mode from triggering if enabled.\n");
-	std::fprintf(stderr, "  -centered-window: Uses the saved window size and centers it on the current screen.\n");
+	std::fprintf(stderr, "  -centered-window: Fits the window to the game display and centers it on the current screen.\n");
 	std::fprintf(stderr, "  -bigpicture: Forces PCSX2 to use the Big Picture mode (useful for controller-only and couch play).\n");
 	std::fprintf(stderr, "  -earlyconsolelog: Forces logging of early console messages to console.\n");
 	std::fprintf(stderr, "  -testconfig: Initializes configuration and checks version, then exits.\n");

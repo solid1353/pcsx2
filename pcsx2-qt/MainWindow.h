@@ -299,6 +299,7 @@ private:
 	void createDisplayWidget(bool fullscreen, bool render_to_main);
 	void destroyDisplayWidget(bool show_game_list);
 	void updateDisplayWidgetCursor();
+	void centerDisplayWindow();
 
 	SettingsWindow* getSettingsWindow();
 
@@ -371,6 +372,7 @@ private:
 	bool m_was_disc_change_request = false;
 	bool m_is_closing = false;
 	bool m_is_temporarily_windowed = false;
+	bool m_center_display_window_on_next_resize = false;
 
 	QString m_last_fps_status;
 

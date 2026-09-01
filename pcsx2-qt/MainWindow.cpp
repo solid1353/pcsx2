@@ -3348,52 +3348,53 @@ void MainWindow::createDisplayWidget(bool fullscreen, bool render_to_main)
 	// We need the surface visible.
 	QGuiApplication::sync();
 
-	// Keep the restored window size and change only its launch position.
 	if (QtHost::ShouldCenterDisplayWindow() && !fullscreen)
-	{
+		m_center_display_window_on_next_resize = true;
+}
+
+void MainWindow::centerDisplayWindow()
+{
 #ifdef DISPLAY_SURFACE_WINDOW
-		if (!render_to_main)
+	if (!m_display_container)
+	{
+		const QScreen* screen = m_display_surface->screen();
+		if (screen)
 		{
-			const QScreen* screen = m_display_surface->screen();
-			if (screen)
-			{
-				const QRect available = screen->availableGeometry();
-				const QRect frame = m_display_surface->frameGeometry();
-				m_display_surface->setFramePosition(
-					QPoint(available.x() + (available.width() - frame.width()) / 2,
-						available.y() + (available.height() - frame.height()) / 2));
-			}
+			const QRect available = screen->availableGeometry();
+			const QRect frame = m_display_surface->frameGeometry();
+			m_display_surface->setFramePosition(
+				QPoint(available.x() + (available.width() - frame.width()) / 2,
+					available.y() + (available.height() - frame.height()) / 2));
 		}
-		else
+		return;
+	}
 #else
-		if (!render_to_main)
+	if (!m_display_container->parent())
+	{
+		const QScreen* screen = m_display_container->screen();
+		if (screen)
 		{
-			const QScreen* screen = m_display_container->screen();
-			if (screen)
-			{
-				const QRect available = screen->availableGeometry();
-				const QRect frame = m_display_container->frameGeometry();
-				const QPoint frame_offset = m_display_container->geometry().topLeft() - frame.topLeft();
-				m_display_container->move(
-					QPoint(available.x() + (available.width() - frame.width()) / 2,
-						available.y() + (available.height() - frame.height()) / 2) +
-					frame_offset);
-			}
+			const QRect available = screen->availableGeometry();
+			const QRect frame = m_display_container->frameGeometry();
+			const QPoint frame_offset = m_display_container->geometry().topLeft() - frame.topLeft();
+			m_display_container->move(
+				QPoint(available.x() + (available.width() - frame.width()) / 2,
+					available.y() + (available.height() - frame.height()) / 2) +
+				frame_offset);
 		}
-		else
+		return;
+	}
 #endif
-		{
-			const QScreen* screen = this->screen();
-			if (screen)
-			{
-				const QRect available = screen->availableGeometry();
-				const QRect frame = frameGeometry();
-				const QPoint frame_offset = geometry().topLeft() - frame.topLeft();
-				move(QPoint(available.x() + (available.width() - frame.width()) / 2,
-						 available.y() + (available.height() - frame.height()) / 2) +
-					 frame_offset);
-			}
-		}
+
+	const QScreen* screen = this->screen();
+	if (screen)
+	{
+		const QRect available = screen->availableGeometry();
+		const QRect frame = frameGeometry();
+		const QPoint frame_offset = geometry().topLeft() - frame.topLeft();
+		move(QPoint(available.x() + (available.width() - frame.width()) / 2,
+				 available.y() + (available.height() - frame.height()) / 2) +
+			 frame_offset);
 	}
 }
 
@@ -3407,25 +3408,32 @@ void MainWindow::displayResizeRequested(qint32 width, qint32 height)
 	width = static_cast<qint32>(std::max(static_cast<int>(std::lroundf(static_cast<float>(width) / dpr)), 1));
 	height = static_cast<qint32>(std::max(static_cast<int>(std::lroundf(static_cast<float>(height) / dpr)), 1));
 
+	const bool center_window = m_center_display_window_on_next_resize;
+	m_center_display_window_on_next_resize = false;
+
 #ifdef DISPLAY_SURFACE_WINDOW
 	if (!m_display_container)
 	{
-		// no parent - rendering to separate window. easy.
 		QtUtils::ResizePotentiallyFixedSizeWindow(m_display_surface, width, height);
+		if (center_window)
+			centerDisplayWindow();
 		return;
 	}
 #else
 	if (!m_display_container->parent())
 	{
-		// no parent - rendering to separate window. easy.
 		QtUtils::ResizePotentiallyFixedSizeWindow(m_display_container, width, height);
+		if (center_window)
+			centerDisplayWindow();
 		return;
 	}
 #endif
 
-	// we are rendering to the main window. we have to add in the extra height from the toolbar/status bar.
-	const s32 extra_height = this->height() - m_display_container->height();
-	QtUtils::ResizePotentiallyFixedSizeWindow(this, width, height + extra_height);
+	// Preserve the full UI chrome around the embedded game surface, including side toolbars.
+	const QSize content_size = size() - m_display_container->size();
+	QtUtils::ResizePotentiallyFixedSizeWindow(this, width + content_size.width(), height + content_size.height());
+	if (center_window)
+		centerDisplayWindow();
 }
 
 void MainWindow::mouseModeRequested(bool relative_mode, bool hide_cursor)
