@@ -285,6 +285,10 @@ void MainWindow::setupToolbarCustomization()
 		m_hidden_toolbar_actions.push_back(QString::fromStdString(action_name));
 	m_ui.toolBar->setAcceptDrops(true);
 	m_ui.toolBar->installEventFilter(this);
+	m_toolbar_drop_indicator = new QWidget(m_ui.toolBar);
+	m_toolbar_drop_indicator->setAttribute(Qt::WA_TransparentForMouseEvents);
+	m_toolbar_drop_indicator->setStyleSheet(QStringLiteral("background-color: palette(highlight);"));
+	m_toolbar_drop_indicator->hide();
 	for (QAction* toolbar_action : m_toolbar_actions)
 	{
 		connect(toolbar_action, &QAction::changed, this, [this, toolbar_action]() {
@@ -300,7 +304,7 @@ void MainWindow::setupToolbarCustomization()
 
 	m_ui.toolBar->setContextMenuPolicy(Qt::CustomContextMenu);
 	connect(m_ui.toolBar, &QToolBar::customContextMenuRequested, this, [this](const QPoint& position) {
-		QAction* toolbar_action = m_ui.toolBar->actionAt(position);
+		QAction* toolbar_action = getToolbarActionAt(position);
 		if (!toolbar_action)
 			return;
 
@@ -396,8 +400,107 @@ QAction* MainWindow::getToolbarActionForWidget(QObject* widget) const
 	return nullptr;
 }
 
+QAction* MainWindow::getToolbarActionAt(const QPoint& position) const
+{
+	for (QAction* toolbar_action : m_ui.toolBar->actions())
+	{
+		QWidget* action_widget = m_ui.toolBar->widgetForAction(toolbar_action);
+		if (action_widget && action_widget->isVisible() && action_widget->geometry().contains(position))
+			return toolbar_action;
+	}
+	return nullptr;
+}
+
+QRect MainWindow::getToolbarActionIconRect(QAction* action) const
+{
+	const QToolButton* button = qobject_cast<QToolButton*>(m_ui.toolBar->widgetForAction(action));
+	if (!button)
+		return {};
+
+	const QIcon::Mode icon_mode = button->isEnabled() ? QIcon::Normal : QIcon::Disabled;
+	const QIcon::State icon_state = button->isChecked() ? QIcon::On : QIcon::Off;
+	const QSize icon_size = button->icon().actualSize(button->rect().size().boundedTo(button->iconSize()), icon_mode, icon_state);
+	if (icon_size.isEmpty())
+		return button->geometry();
+
+	QRect icon_area = button->rect();
+	if (button->toolButtonStyle() == Qt::ToolButtonTextUnderIcon)
+		icon_area.setHeight(icon_size.height() + 4);
+	QRect icon_rect(QPoint(), icon_size);
+	icon_rect.moveCenter(icon_area.center());
+	icon_rect.translate(button->geometry().topLeft());
+	return icon_rect;
+}
+
+QAction* MainWindow::getToolbarDropBeforeAction(const QPoint& position, QAction* dragged_action) const
+{
+	const bool horizontal = (m_ui.toolBar->orientation() == Qt::Horizontal);
+	const int drop_coordinate = horizontal ? position.x() : position.y();
+	for (QAction* toolbar_action : m_ui.toolBar->actions())
+	{
+		if (toolbar_action == dragged_action)
+			continue;
+		QWidget* action_widget = m_ui.toolBar->widgetForAction(toolbar_action);
+		if (!action_widget || !action_widget->isVisible())
+			continue;
+
+		const QRect icon_rect = getToolbarActionIconRect(toolbar_action);
+		const int icon_center = horizontal ? icon_rect.center().x() : icon_rect.center().y();
+		if (drop_coordinate < icon_center)
+			return toolbar_action;
+	}
+	return nullptr;
+}
+
+void MainWindow::updateToolbarDropIndicator(const QPoint& position, QAction* dragged_action)
+{
+	QAction* before_action = getToolbarDropBeforeAction(position, dragged_action);
+	QAction* adjacent_action = before_action;
+	bool after_action = false;
+	if (!adjacent_action)
+	{
+		const QList<QAction*> visible_actions = m_ui.toolBar->actions();
+		for (auto action = visible_actions.crbegin(); action != visible_actions.crend(); ++action)
+		{
+			QWidget* action_widget = m_ui.toolBar->widgetForAction(*action);
+			if (*action != dragged_action && action_widget && action_widget->isVisible())
+			{
+				adjacent_action = *action;
+				after_action = true;
+				break;
+			}
+		}
+	}
+	if (!adjacent_action)
+	{
+		m_toolbar_drop_indicator->hide();
+		return;
+	}
+
+	constexpr int thickness = 4;
+	const QRect icon_rect = getToolbarActionIconRect(adjacent_action);
+	const QRect action_rect = m_ui.toolBar->widgetForAction(adjacent_action)->geometry();
+	QRect indicator_rect;
+	if (m_ui.toolBar->orientation() == Qt::Horizontal)
+	{
+		const int x = after_action ? action_rect.right() + 1 : action_rect.left();
+		indicator_rect = QRect(x - (thickness / 2), icon_rect.top(), thickness, icon_rect.height());
+	}
+	else
+	{
+		const int y = after_action ? action_rect.bottom() + 1 : action_rect.top();
+		indicator_rect = QRect(icon_rect.left(), y - (thickness / 2), icon_rect.width(), thickness);
+	}
+
+	m_toolbar_drop_indicator->setGeometry(indicator_rect.intersected(m_ui.toolBar->rect()));
+	m_toolbar_drop_indicator->raise();
+	m_toolbar_drop_indicator->show();
+}
+
 void MainWindow::rebuildToolbar()
 {
+	if (m_toolbar_drop_indicator)
+		m_toolbar_drop_indicator->hide();
 	m_ui.toolBar->clear();
 	for (QAction* toolbar_action : m_toolbar_actions)
 	{
@@ -438,9 +541,17 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 			mime_data->setData(TOOLBAR_ACTION_MIME_TYPE, toolbar_action->objectName().toUtf8());
 			drag.setMimeData(mime_data);
 			if (QWidget* action_widget = m_ui.toolBar->widgetForAction(toolbar_action))
-				drag.setPixmap(action_widget->grab());
+			{
+				const QRect icon_rect = getToolbarActionIconRect(toolbar_action);
+				const QIcon::State icon_state = toolbar_action->isChecked() ? QIcon::On : QIcon::Off;
+				const QPixmap icon_pixmap = toolbar_action->icon().pixmap(
+					icon_rect.size(), action_widget->devicePixelRatioF(), QIcon::Normal, icon_state);
+				drag.setPixmap(icon_pixmap);
+				drag.setHotSpot(icon_pixmap.rect().center());
+			}
 			m_toolbar_drag_action = nullptr;
 			drag.exec(Qt::MoveAction);
+			m_toolbar_drop_indicator->hide();
 			return true;
 		}
 	}
@@ -453,9 +564,22 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 		QDropEvent* drag_event = static_cast<QDropEvent*>(event);
 		if (drag_event->mimeData()->hasFormat(TOOLBAR_ACTION_MIME_TYPE))
 		{
+			const QString action_name = QString::fromUtf8(drag_event->mimeData()->data(TOOLBAR_ACTION_MIME_TYPE));
+			for (QAction* action : m_toolbar_actions)
+			{
+				if (action->objectName() == action_name)
+				{
+					updateToolbarDropIndicator(drag_event->position().toPoint(), action);
+					break;
+				}
+			}
 			drag_event->acceptProposedAction();
 			return true;
 		}
+	}
+	else if (watched == m_ui.toolBar && event->type() == QEvent::DragLeave)
+	{
+		m_toolbar_drop_indicator->hide();
 	}
 	else if (watched == m_ui.toolBar && event->type() == QEvent::Drop)
 	{
@@ -473,23 +597,14 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 
 		if (dropped_action)
 		{
-			QAction* before_action = nullptr;
 			const QPoint drop_position = drop_event->position().toPoint();
-			for (QAction* action : m_ui.toolBar->actions())
-			{
-				QWidget* action_widget = m_ui.toolBar->widgetForAction(action);
-				if (action != dropped_action && action_widget &&
-					((m_ui.toolBar->orientation() == Qt::Horizontal && drop_position.x() < action_widget->geometry().center().x()) ||
-						(m_ui.toolBar->orientation() == Qt::Vertical && drop_position.y() < action_widget->geometry().center().y())))
-				{
-					before_action = action;
-					break;
-				}
-			}
+			QAction* before_action = getToolbarDropBeforeAction(drop_position, dropped_action);
+			m_toolbar_drop_indicator->hide();
 			moveToolbarAction(dropped_action, before_action);
 			drop_event->acceptProposedAction();
 			return true;
 		}
+		m_toolbar_drop_indicator->hide();
 	}
 
 	return QMainWindow::eventFilter(watched, event);

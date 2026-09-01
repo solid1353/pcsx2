@@ -6,6 +6,7 @@
 #include "common/WindowInfo.h"
 
 #include <QtCore/QPoint>
+#include <QtCore/QRect>
 #include <QtCore/QStringList>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QMainWindow>
@@ -251,6 +252,10 @@ private:
 	void setToolbarActionVisible(QAction* action, bool visible);
 	void moveToolbarAction(QAction* action, QAction* before_action);
 	QAction* getToolbarActionForWidget(QObject* widget) const;
+	QAction* getToolbarActionAt(const QPoint& position) const;
+	QRect getToolbarActionIconRect(QAction* action) const;
+	QAction* getToolbarDropBeforeAction(const QPoint& position, QAction* dragged_action) const;
+	void updateToolbarDropIndicator(const QPoint& position, QAction* dragged_action);
 	void rebuildToolbar();
 	void setupStatusBarWidgets();
 	void applyStatusBarVolumeChanges(std::optional<int> volume, bool toggle_mute, std::optional<bool> override_per_game = std::nullopt);
@@ -354,6 +359,7 @@ private:
 	QStringList m_hidden_toolbar_actions;
 	QAction* m_toolbar_drag_action = nullptr;
 	QPoint m_toolbar_drag_start_position;
+	QWidget* m_toolbar_drop_indicator = nullptr;
 
 	bool m_display_created = false;
 	bool m_status_volume_muted = false;
