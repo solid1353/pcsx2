@@ -520,32 +520,38 @@ void MainWindow::rebuildToolbar()
 bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 {
 	QAction* toolbar_action = getToolbarActionForWidget(watched);
-	if (toolbar_action && event->type() == QEvent::MouseButtonPress)
+	if (event->type() == QEvent::MouseButtonPress)
 	{
 		const QMouseEvent* mouse_event = static_cast<QMouseEvent*>(event);
+		if (watched == m_ui.toolBar)
+			toolbar_action = getToolbarActionAt(mouse_event->position().toPoint());
 		if (mouse_event->button() == Qt::LeftButton)
 		{
 			m_toolbar_drag_action = toolbar_action;
 			m_toolbar_drag_start_position = mouse_event->globalPosition().toPoint();
+			if (watched == m_ui.toolBar && toolbar_action)
+				return true;
 		}
 	}
-	else if (toolbar_action && event->type() == QEvent::MouseMove)
+	else if (event->type() == QEvent::MouseMove)
 	{
 		const QMouseEvent* mouse_event = static_cast<QMouseEvent*>(event);
-		if (m_toolbar_drag_action == toolbar_action && (mouse_event->buttons() & Qt::LeftButton) &&
+		if (m_toolbar_drag_action && (mouse_event->buttons() & Qt::LeftButton) &&
 			(mouse_event->globalPosition().toPoint() - m_toolbar_drag_start_position).manhattanLength() >=
 				QApplication::startDragDistance())
 		{
+			QAction* dragged_action = m_toolbar_drag_action;
 			QDrag drag(m_ui.toolBar);
 			QMimeData* mime_data = new QMimeData();
-			mime_data->setData(TOOLBAR_ACTION_MIME_TYPE, toolbar_action->objectName().toUtf8());
+			mime_data->setData(TOOLBAR_ACTION_MIME_TYPE, dragged_action->objectName().toUtf8());
 			drag.setMimeData(mime_data);
-			if (QWidget* action_widget = m_ui.toolBar->widgetForAction(toolbar_action))
+			if (QWidget* action_widget = m_ui.toolBar->widgetForAction(dragged_action))
 			{
-				const QRect icon_rect = getToolbarActionIconRect(toolbar_action);
-				const QIcon::State icon_state = toolbar_action->isChecked() ? QIcon::On : QIcon::Off;
-				const QPixmap icon_pixmap = toolbar_action->icon().pixmap(
-					icon_rect.size(), action_widget->devicePixelRatioF(), QIcon::Normal, icon_state);
+				const QRect icon_rect = getToolbarActionIconRect(dragged_action);
+				const QIcon::Mode icon_mode = dragged_action->isEnabled() ? QIcon::Normal : QIcon::Disabled;
+				const QIcon::State icon_state = dragged_action->isChecked() ? QIcon::On : QIcon::Off;
+				const QPixmap icon_pixmap = dragged_action->icon().pixmap(
+					icon_rect.size(), action_widget->devicePixelRatioF(), icon_mode, icon_state);
 				drag.setPixmap(icon_pixmap);
 				drag.setHotSpot(icon_pixmap.rect().center());
 			}
@@ -554,10 +560,15 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 			m_toolbar_drop_indicator->hide();
 			return true;
 		}
+		if (watched == m_ui.toolBar && m_toolbar_drag_action)
+			return true;
 	}
 	else if (event->type() == QEvent::MouseButtonRelease)
 	{
+		const bool consume_event = (watched == m_ui.toolBar && m_toolbar_drag_action);
 		m_toolbar_drag_action = nullptr;
+		if (consume_event)
+			return true;
 	}
 	else if (watched == m_ui.toolBar && (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove))
 	{
