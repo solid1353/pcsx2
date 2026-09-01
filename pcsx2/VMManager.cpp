@@ -84,6 +84,7 @@ namespace VMManager
 	static std::optional<int> s_pine_port_override;
 	static std::optional<std::string> s_memory_card_override;
 	static bool s_output_muted_override = false;
+	static bool s_stretch_display_override = false;
 
 	static void SetDefaultLoggingSettings(SettingsInterface& si);
 	static void UpdateLoggingSettings(SettingsInterface& si);
@@ -94,6 +95,7 @@ namespace VMManager
 	static void UpdateCPUImplementations();
 
 	static void ApplyGameFixes();
+	static void ApplyBootDisplayOverrides();
 	static bool UpdateGameSettingsLayer();
 	static void CheckForConfigChanges(const Pcsx2Config& old_config);
 	static void CheckForCPUConfigChanges(const Pcsx2Config& old_config);
@@ -782,6 +784,16 @@ void VMManager::ApplyGameFixes()
 	EmuConfig.GS.MaskUpscalingHacks();
 }
 
+void VMManager::ApplyBootDisplayOverrides()
+{
+	if (!s_stretch_display_override)
+		return;
+
+	EmuConfig.GS.AspectRatio = AspectRatioType::Stretch;
+	EmuConfig.CurrentAspectRatio = AspectRatioType::Stretch;
+	EmuConfig.CurrentCustomAspectRatio = 0.0f;
+}
+
 void VMManager::ApplySettings()
 {
 	Console.WriteLn("Applying settings...");
@@ -800,6 +812,7 @@ void VMManager::ApplySettings()
 	EmuConfig = Pcsx2Config();
 	EmuConfig.CopyRuntimeConfig(old_config);
 	LoadSettings();
+	ApplyBootDisplayOverrides();
 	CheckForConfigChanges(old_config);
 }
 
@@ -830,6 +843,7 @@ void VMManager::ApplyCoreSettings()
 		WarnAboutUnsafeSettings();
 		ApplyGameFixes();
 	}
+	ApplyBootDisplayOverrides();
 
 	CheckForConfigChanges(old_config);
 }
@@ -1480,6 +1494,7 @@ VMBootResult VMManager::Initialize(const VMBootParameters& boot_params, Error* e
 
 	s_state.store(VMState::Initializing, std::memory_order_release);
 	s_vm_thread_handle = Threading::ThreadHandle::GetForCallingThread();
+	s_stretch_display_override = boot_params.stretch_display;
 	Host::OnVMStarting();
 	VMManager::Internal::ResetVMHotkeyState();
 
@@ -1499,6 +1514,7 @@ VMBootResult VMManager::Initialize(const VMBootParameters& boot_params, Error* e
 		UpdateGameSettingsLayer();
 		s_state.store(VMState::Shutdown, std::memory_order_release);
 		Host::OnVMDestroyed();
+		s_stretch_display_override = false;
 		ApplySettings();
 	};
 
@@ -1872,6 +1888,7 @@ void VMManager::Shutdown(bool save_resume_state)
 	Host::OnVMDestroyed();
 
 	// clear out any potentially-incorrect settings from the last game
+	s_stretch_display_override = false;
 	LoadSettings();
 }
 
@@ -3181,7 +3198,10 @@ void VMManager::CheckForPatchConfigChanges(const Pcsx2Config& old_config)
 	// This is a bit messy, because the patch config update happens after the settings are loaded,
 	// if we disable widescreen patches, we have to reload the original settings again.
 	if (Patch::ReloadPatchAffectingOptions())
+	{
+		ApplyBootDisplayOverrides();
 		MTGS::ApplySettings();
+	}
 }
 
 void VMManager::CheckForDEV9ConfigChanges(const Pcsx2Config& old_config)

@@ -48,6 +48,7 @@ struct VMBootParameters
 	std::optional<u64> start_unlimited_frame_count;
 	LimiterModeType unlimited_frame_fallback_mode = LimiterModeType::Nominal;
 	bool disable_achievements_hardcore_mode = false;
+	bool stretch_display = false;
 };
 
 enum class VMBootResult

@@ -3348,8 +3348,9 @@ void MainWindow::createDisplayWidget(bool fullscreen, bool render_to_main)
 	// We need the surface visible.
 	QGuiApplication::sync();
 
+	// Keep the restored window size and change only its launch position.
 	if (QtHost::ShouldCenterDisplayWindow() && !fullscreen)
-		m_center_display_window_on_next_resize = true;
+		centerDisplayWindow();
 }
 
 void MainWindow::centerDisplayWindow()
@@ -3408,32 +3409,25 @@ void MainWindow::displayResizeRequested(qint32 width, qint32 height)
 	width = static_cast<qint32>(std::max(static_cast<int>(std::lroundf(static_cast<float>(width) / dpr)), 1));
 	height = static_cast<qint32>(std::max(static_cast<int>(std::lroundf(static_cast<float>(height) / dpr)), 1));
 
-	const bool center_window = m_center_display_window_on_next_resize;
-	m_center_display_window_on_next_resize = false;
-
 #ifdef DISPLAY_SURFACE_WINDOW
 	if (!m_display_container)
 	{
+		// no parent - rendering to separate window. easy.
 		QtUtils::ResizePotentiallyFixedSizeWindow(m_display_surface, width, height);
-		if (center_window)
-			centerDisplayWindow();
 		return;
 	}
 #else
 	if (!m_display_container->parent())
 	{
+		// no parent - rendering to separate window. easy.
 		QtUtils::ResizePotentiallyFixedSizeWindow(m_display_container, width, height);
-		if (center_window)
-			centerDisplayWindow();
 		return;
 	}
 #endif
 
-	// Preserve the full UI chrome around the embedded game surface, including side toolbars.
-	const QSize content_size = size() - m_display_container->size();
-	QtUtils::ResizePotentiallyFixedSizeWindow(this, width + content_size.width(), height + content_size.height());
-	if (center_window)
-		centerDisplayWindow();
+	// we are rendering to the main window. we have to add in the extra height from the toolbar/status bar.
+	const s32 extra_height = this->height() - m_display_container->height();
+	QtUtils::ResizePotentiallyFixedSizeWindow(this, width, height + extra_height);
 }
 
 void MainWindow::mouseModeRequested(bool relative_mode, bool hide_cursor)
