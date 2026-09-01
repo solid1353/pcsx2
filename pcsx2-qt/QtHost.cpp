@@ -99,6 +99,7 @@ static bool s_nogui_mode = false;
 static bool s_surfaceless_mode = false;
 static bool s_start_big_picture_mode = false;
 static bool s_start_fullscreen = false;
+static bool s_center_display_window = false;
 static bool s_test_config_and_exit = false;
 static bool s_run_setup_wizard = false;
 static bool s_cleanup_after_update = false;
@@ -1599,6 +1600,11 @@ bool QtHost::ShouldShowAdvancedSettings()
 	return Host::GetBaseBoolSettingValue("UI", "ShowAdvancedSettings", false);
 }
 
+bool QtHost::ShouldCenterDisplayWindow()
+{
+	return s_center_display_window;
+}
+
 void QtHost::RunOnUIThread(const std::function<void()>& func, bool block /*= false*/)
 {
 	// main window always exists, so it's fine to attach it to that.
@@ -2246,6 +2252,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -input-recording-create <path>: Creates at an exact absolute path or a path relative to the primary InputRecordings folder.\n");
 	std::fprintf(stderr, "  -fullscreen: Enters fullscreen mode immediately after starting.\n");
 	std::fprintf(stderr, "  -nofullscreen: Prevents fullscreen mode from triggering if enabled.\n");
+	std::fprintf(stderr, "  -centered-window: Fits the window to the game display and centers it on the current screen.\n");
 	std::fprintf(stderr, "  -bigpicture: Forces PCSX2 to use the Big Picture mode (useful for controller-only and couch play).\n");
 	std::fprintf(stderr, "  -earlyconsolelog: Forces logging of early console messages to console.\n");
 	std::fprintf(stderr, "  -testconfig: Initializes configuration and checks version, then exits.\n");
@@ -2528,6 +2535,11 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 				AutoBoot(autoboot)->fullscreen = false;
 				continue;
 			}
+			else if (CHECK_ARG(QStringLiteral("-centered-window")))
+			{
+				s_center_display_window = true;
+				continue;
+			}
 			else if (CHECK_ARG(QStringLiteral("-earlyconsolelog")))
 			{
 				InitializeEarlyConsole();
@@ -2695,6 +2707,9 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 		Console.Warning("Both turbo and unlimited frame limit modes requested. Using unlimited.");
 		autoboot->start_turbo.reset();
 	}
+
+	if (s_center_display_window && autoboot)
+		autoboot->fullscreen = false;
 
 	// if we don't have autoboot, we definitely don't want batch mode (because that'll skip
 	// scanning the game list).

@@ -253,6 +253,9 @@ namespace QtHost
 	/// Returns true if advanced settings should be shown.
 	bool ShouldShowAdvancedSettings();
 
+	/// Returns true if the display window should be fitted to the game and centered for this process.
+	bool ShouldCenterDisplayWindow();
+
 	/// Executes a function on the UI thread.
 	void RunOnUIThread(const std::function<void()>& func, bool block = false);
 
