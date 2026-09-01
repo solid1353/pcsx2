@@ -96,6 +96,9 @@ std::vector<GSAdapterInfo> GSGetAdapterInfo(GSRendererType renderer);
 u32 GSGetMaxUpscaleMultiplier(u32 max_texture_size);
 GSVideoMode GSgetDisplayMode();
 void GSgetInternalResolution(int* width, int* height);
+
+/// Returns the effective aspect ratio of the most recently presented game image.
+float GSGetPresentAspectRatio();
 void GSgetStats(SmallStringBase& info);
 void GSgetMemoryStats(SmallStringBase& info);
 void GSgetTitleStats(std::string& info);

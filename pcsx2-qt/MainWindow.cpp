@@ -3347,9 +3347,6 @@ void MainWindow::createDisplayWidget(bool fullscreen, bool render_to_main)
 
 	// We need the surface visible.
 	QGuiApplication::sync();
-
-	if (QtHost::ShouldCenterDisplayWindow() && !fullscreen)
-		m_center_display_window_on_next_resize = true;
 }
 
 void MainWindow::centerDisplayWindow()
@@ -3403,26 +3400,27 @@ void MainWindow::displayResizeRequested(qint32 width, qint32 height)
 	if (!m_display_surface)
 		return;
 
-	const bool center_window = m_center_display_window_on_next_resize;
-	m_center_display_window_on_next_resize = false;
+	const bool center_window = QtHost::ShouldCenterDisplayWindow();
 
 	width = std::max(width, 1);
 	height = std::max(height, 1);
-	const float dpr = devicePixelRatioF();
-	const QSize requested_display_size(
-		std::max(static_cast<int>(std::lroundf(static_cast<float>(width) / dpr)), 1),
-		std::max(static_cast<int>(std::lroundf(static_cast<float>(height) / dpr)), 1));
+	QSize requested_display_size;
+	if (!center_window)
+	{
+		const float dpr = devicePixelRatioF();
+		requested_display_size = QSize(
+			std::max(static_cast<int>(std::lroundf(static_cast<float>(width) / dpr)), 1),
+			std::max(static_cast<int>(std::lroundf(static_cast<float>(height) / dpr)), 1));
+	}
 
 	auto get_display_size = [center_window, width, height, requested_display_size](const QSize& frame_size,
-								const QSize& window_size, const QSize& chrome_size, float window_dpr) {
+								const QSize& window_size, const QSize& chrome_size) {
 		if (!center_window)
 			return requested_display_size;
 
 		static constexpr int TARGET_FRAME_WIDTH = 1024;
 		static constexpr int TARGET_FRAME_HEIGHT = 768;
-		const QSize target_frame_size(
-			std::max(static_cast<int>(std::lroundf(static_cast<float>(TARGET_FRAME_WIDTH) / window_dpr)), 1),
-			std::max(static_cast<int>(std::lroundf(static_cast<float>(TARGET_FRAME_HEIGHT) / window_dpr)), 1));
+		const QSize target_frame_size(TARGET_FRAME_WIDTH, TARGET_FRAME_HEIGHT);
 		const QSize frame_chrome_size = frame_size - window_size;
 		const QSize maximum_display_size = target_frame_size - frame_chrome_size - chrome_size;
 		const int maximum_width = std::max(maximum_display_size.width(), 1);
@@ -3444,8 +3442,7 @@ void MainWindow::displayResizeRequested(qint32 width, qint32 height)
 	if (!m_display_container)
 	{
 		const QSize display_size = get_display_size(
-			m_display_surface->frameGeometry().size(), m_display_surface->geometry().size(), QSize(),
-			static_cast<float>(m_display_surface->devicePixelRatio()));
+			m_display_surface->frameGeometry().size(), m_display_surface->geometry().size(), QSize());
 		QtUtils::ResizePotentiallyFixedSizeWindow(m_display_surface, display_size.width(), display_size.height());
 		if (center_window)
 			centerDisplayWindow();
@@ -3455,8 +3452,7 @@ void MainWindow::displayResizeRequested(qint32 width, qint32 height)
 	if (!m_display_container->parent())
 	{
 		const QSize display_size = get_display_size(
-			m_display_container->frameGeometry().size(), m_display_container->geometry().size(), QSize(),
-			static_cast<float>(m_display_container->devicePixelRatioF()));
+			m_display_container->frameGeometry().size(), m_display_container->geometry().size(), QSize());
 		QtUtils::ResizePotentiallyFixedSizeWindow(m_display_container, display_size.width(), display_size.height());
 		if (center_window)
 			centerDisplayWindow();
@@ -3465,8 +3461,7 @@ void MainWindow::displayResizeRequested(qint32 width, qint32 height)
 #endif
 
 	const QSize chrome_size = size() - m_display_container->size();
-	const QSize display_size = get_display_size(
-		frameGeometry().size(), geometry().size(), chrome_size, static_cast<float>(devicePixelRatioF()));
+	const QSize display_size = get_display_size(frameGeometry().size(), geometry().size(), chrome_size);
 	QtUtils::ResizePotentiallyFixedSizeWindow(
 		this, display_size.width() + chrome_size.width(), display_size.height() + chrome_size.height());
 	if (center_window)

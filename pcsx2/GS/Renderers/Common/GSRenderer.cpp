@@ -25,6 +25,7 @@
 #include "IconsFontAwesome.h"
 
 #include <algorithm>
+#include <atomic>
 #include <array>
 #include <deque>
 #include <thread>
@@ -46,6 +47,7 @@ std::unique_ptr<GSRenderer> g_gs_renderer;
 // Since we read this on the EE thread, we can't put it in the renderer, because
 // we might be switching while the other thread reads it.
 static GSVector4 s_last_draw_rect;
+static std::atomic<float> s_present_aspect_ratio{0.0f};
 
 // Last time we reset the renderer due to a GPU crash, if any.
 static Common::Timer::Value s_last_gpu_reset_time;
@@ -57,6 +59,7 @@ GSRenderer::GSRenderer()
 	: m_shader_time_start(Common::Timer::GetCurrentValue())
 {
 	s_last_draw_rect = GSVector4::zero();
+	s_present_aspect_ratio.store(0.0f, std::memory_order_relaxed);
 }
 
 GSRenderer::~GSRenderer() = default;
@@ -311,7 +314,9 @@ static float GetCurrentAspectRatioFloat(bool is_progressive)
 	}
 }
 
-static GSVector4 CalculateDrawDstRect(s32 window_width, s32 window_height, const GSVector4i& src_rect, const GSVector2i& src_size, GSDisplayAlignment alignment, bool flip_y, bool is_progressive)
+static GSVector4 CalculateDrawDstRect(s32 window_width, s32 window_height, const GSVector4i& src_rect,
+	const GSVector2i& src_size, GSDisplayAlignment alignment, bool flip_y, bool is_progressive,
+	float* present_aspect_ratio = nullptr)
 {
 	const float f_width = static_cast<float>(window_width);
 	const float f_height = static_cast<float>(window_height);
@@ -342,7 +347,9 @@ static GSVector4 CalculateDrawDstRect(s32 window_width, s32 window_height, const
 	}
 
 	const float crop_adjust = (static_cast<float>(src_rect.width()) / static_cast<float>(src_size.x)) /
-		(static_cast<float>(src_rect.height()) / static_cast<float>(src_size.y));
+	                          (static_cast<float>(src_rect.height()) / static_cast<float>(src_size.y));
+	if (present_aspect_ratio)
+		*present_aspect_ratio = (targetAr * crop_adjust) / (GSConfig.StretchY / 100.0f);
 
 	const double arr = (targetAr * crop_adjust) / clientAr;
 	float target_width = f_width;
@@ -661,10 +668,12 @@ void GSRenderer::VSync(u32 field, bool registers_written, bool idle_frame)
 		{
 			src_rect = CalculateDrawSrcRect(current, m_real_size);
 			src_uv = GSVector4(src_rect) / GSVector4(current->GetSize()).xyxy();
+			float present_aspect_ratio;
 			draw_rect = CalculateDrawDstRect(g_gs_device->GetWindowWidth(), g_gs_device->GetWindowHeight(),
 				src_rect, current->GetSize(), s_display_alignment, g_gs_device->UsesLowerLeftOrigin(),
-				GetVideoMode() == GSVideoMode::SDTV_480P);
+				GetVideoMode() == GSVideoMode::SDTV_480P, &present_aspect_ratio);
 			s_last_draw_rect = draw_rect;
+			s_present_aspect_ratio.store(present_aspect_ratio, std::memory_order_relaxed);
 
 			if (GSConfig.CASMode != GSCASMode::Disabled)
 			{
@@ -964,10 +973,12 @@ void GSRenderer::PresentCurrentFrame()
 		{
 			const GSVector4i src_rect(CalculateDrawSrcRect(current, m_real_size));
 			const GSVector4 src_uv(GSVector4(src_rect) / GSVector4(current->GetSize()).xyxy());
+			float present_aspect_ratio;
 			const GSVector4 draw_rect(CalculateDrawDstRect(g_gs_device->GetWindowWidth(), g_gs_device->GetWindowHeight(),
 				src_rect, current->GetSize(), s_display_alignment, g_gs_device->UsesLowerLeftOrigin(),
-				GetVideoMode() == GSVideoMode::SDTV_480P));
+				GetVideoMode() == GSVideoMode::SDTV_480P, &present_aspect_ratio));
 			s_last_draw_rect = draw_rect;
+			s_present_aspect_ratio.store(present_aspect_ratio, std::memory_order_relaxed);
 
 			const u64 current_time = Common::Timer::GetCurrentValue();
 			const float shader_time = static_cast<float>(Common::Timer::ConvertValueToSeconds(current_time - m_shader_time_start));
@@ -995,6 +1006,11 @@ void GSTranslateWindowToDisplayCoordinates(float window_x, float window_y, float
 
 	*display_x = rel_x / draw_width;
 	*display_y = rel_y / draw_height;
+}
+
+float GSGetPresentAspectRatio()
+{
+	return s_present_aspect_ratio.load(std::memory_order_relaxed);
 }
 
 void GSSetDisplayAlignment(GSDisplayAlignment alignment)
