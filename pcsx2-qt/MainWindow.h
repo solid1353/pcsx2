@@ -5,6 +5,7 @@
 
 #include "common/WindowInfo.h"
 
+#include <QtCore/QStringList>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QMainWindow>
 #include <QtWidgets/QMenu>
@@ -241,6 +242,9 @@ protected:
 
 private:
 	void setupAdditionalUi();
+	void setupToolbarCustomization();
+	void populateToolbarActionsMenu();
+	void rebuildToolbar();
 	void setupStatusBarWidgets();
 	void applyStatusBarVolumeChanges(std::optional<int> volume, bool toggle_mute, std::optional<bool> override_per_game = std::nullopt);
 	void connectSignals();
@@ -338,6 +342,9 @@ private:
 	QLabel* m_status_resolution_widget = nullptr;
 
 	QMenu* m_settings_toolbar_menu = nullptr;
+	QMenu* m_toolbar_actions_menu = nullptr;
+	QList<QAction*> m_toolbar_actions;
+	QStringList m_hidden_toolbar_actions;
 
 	bool m_display_created = false;
 	bool m_status_volume_muted = false;

@@ -213,7 +213,7 @@ void MainWindow::setupAdditionalUi()
 	const bool toolbars_locked = Host::GetBaseBoolSettingValue("UI", "LockToolbar", false);
 	m_ui.actionViewLockToolbar->setChecked(toolbars_locked);
 	m_ui.toolBar->setMovable(!toolbars_locked);
-	m_ui.toolBar->setContextMenuPolicy(Qt::PreventContextMenu);
+	setupToolbarCustomization();
 
 	m_settings_toolbar_menu = new QMenu(m_ui.toolBar);
 	m_settings_toolbar_menu->addAction(m_ui.actionSettings);
@@ -268,6 +268,89 @@ void MainWindow::setupAdditionalUi()
 		m_ui.menuTools->insertMenu(m_ui.menuInputRecording->menuAction(), raMenu);
 	}
 #endif
+}
+
+void MainWindow::setupToolbarCustomization()
+{
+	m_toolbar_actions = m_ui.toolBar->actions();
+	for (const std::string& action_name : Host::GetBaseStringListSetting("UI", "HiddenToolbarActions"))
+		m_hidden_toolbar_actions.push_back(QString::fromStdString(action_name));
+	rebuildToolbar();
+
+	m_toolbar_actions_menu = new QMenu(tr("Toolbar Buttons"), this);
+	m_ui.menuView->insertMenu(m_ui.actionViewStatusBar, m_toolbar_actions_menu);
+	connect(m_toolbar_actions_menu, &QMenu::aboutToShow, this, &MainWindow::populateToolbarActionsMenu);
+
+	m_ui.toolBar->setContextMenuPolicy(Qt::CustomContextMenu);
+	connect(m_ui.toolBar, &QToolBar::customContextMenuRequested, this, [this](const QPoint& position) {
+		m_toolbar_actions_menu->exec(m_ui.toolBar->mapToGlobal(position));
+	});
+}
+
+void MainWindow::populateToolbarActionsMenu()
+{
+	m_toolbar_actions_menu->clear();
+	bool has_actions = false;
+	bool separator_pending = false;
+	for (QAction* toolbar_action : m_toolbar_actions)
+	{
+		if (toolbar_action->isSeparator())
+		{
+			separator_pending = has_actions;
+			continue;
+		}
+
+		if (separator_pending)
+		{
+			m_toolbar_actions_menu->addSeparator();
+			separator_pending = false;
+		}
+
+		QAction* visibility_action = m_toolbar_actions_menu->addAction(toolbar_action->icon(), toolbar_action->text());
+		visibility_action->setCheckable(true);
+		visibility_action->setChecked(!m_hidden_toolbar_actions.contains(toolbar_action->objectName()));
+		connect(visibility_action, &QAction::toggled, this, [this, toolbar_action](bool visible) {
+			const QString action_name = toolbar_action->objectName();
+			if (visible)
+				m_hidden_toolbar_actions.removeAll(action_name);
+			else if (!m_hidden_toolbar_actions.contains(action_name))
+				m_hidden_toolbar_actions.push_back(action_name);
+
+			std::vector<std::string> hidden_actions;
+			hidden_actions.reserve(m_hidden_toolbar_actions.size());
+			for (const QString& hidden_action : m_hidden_toolbar_actions)
+				hidden_actions.push_back(hidden_action.toStdString());
+			Host::SetBaseStringListSettingValue("UI", "HiddenToolbarActions", hidden_actions);
+			Host::CommitBaseSettingChanges();
+			rebuildToolbar();
+		});
+		has_actions = true;
+	}
+}
+
+void MainWindow::rebuildToolbar()
+{
+	m_ui.toolBar->clear();
+	QAction* pending_separator = nullptr;
+	bool has_visible_actions = false;
+	for (QAction* toolbar_action : m_toolbar_actions)
+	{
+		if (toolbar_action->isSeparator())
+		{
+			pending_separator = has_visible_actions ? toolbar_action : nullptr;
+			continue;
+		}
+		if (m_hidden_toolbar_actions.contains(toolbar_action->objectName()))
+			continue;
+
+		if (pending_separator)
+		{
+			m_ui.toolBar->addAction(pending_separator);
+			pending_separator = nullptr;
+		}
+		m_ui.toolBar->addAction(toolbar_action);
+		has_visible_actions = true;
+	}
 }
 
 void MainWindow::setupStatusBarWidgets()

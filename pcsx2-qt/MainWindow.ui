@@ -253,6 +253,7 @@
    <addaction name="actionToolbarStartDisc"/>
    <addaction name="actionToolbarStartBios"/>
    <addaction name="actionToolbarStartFullscreenUI"/>
+   <addaction name="actionRescanAllGames"/>
    <addaction name="separator"/>
    <addaction name="actionToolbarPowerOff"/>
    <addaction name="actionToolbarReset"/>
