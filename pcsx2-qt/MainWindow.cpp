@@ -1397,13 +1397,16 @@ void MainWindow::saveStateToConfig()
 
 	bool changed = false;
 
-	const QByteArray geometry(saveGeometry());
-	const QByteArray geometry_b64(geometry.toBase64());
-	const std::string old_geometry_b64(Host::GetBaseStringSettingValue("UI", "MainWindowGeometry"));
-	if (old_geometry_b64 != geometry_b64.constData())
+	if (!QtHost::ShouldCenterDisplayWindow())
 	{
-		Host::SetBaseStringSettingValue("UI", "MainWindowGeometry", geometry_b64.constData());
-		changed = true;
+		const QByteArray geometry(saveGeometry());
+		const QByteArray geometry_b64(geometry.toBase64());
+		const std::string old_geometry_b64(Host::GetBaseStringSettingValue("UI", "MainWindowGeometry"));
+		if (old_geometry_b64 != geometry_b64.constData())
+		{
+			Host::SetBaseStringSettingValue("UI", "MainWindowGeometry", geometry_b64.constData());
+			changed = true;
+		}
 	}
 
 	const QByteArray state(saveState());
@@ -3348,16 +3351,18 @@ void MainWindow::createDisplayWidget(bool fullscreen, bool render_to_main)
 	// We need the surface visible.
 	QGuiApplication::sync();
 
-	// Keep the restored window size and change only its launch position.
 	if (QtHost::ShouldCenterDisplayWindow() && !fullscreen)
-		centerDisplayWindow();
+		scaleAndCenterDisplayWindow();
 }
 
-void MainWindow::centerDisplayWindow()
+void MainWindow::scaleAndCenterDisplayWindow()
 {
 #ifdef DISPLAY_SURFACE_WINDOW
 	if (!m_display_container)
 	{
+		QtUtils::ResizePotentiallyFixedSizeWindow(
+			m_display_surface, m_display_surface->width() * 2, m_display_surface->height() * 2);
+		QGuiApplication::sync();
 		const QScreen* screen = m_display_surface->screen();
 		if (screen)
 		{
@@ -3372,6 +3377,9 @@ void MainWindow::centerDisplayWindow()
 #else
 	if (!m_display_container->parent())
 	{
+		QtUtils::ResizePotentiallyFixedSizeWindow(
+			m_display_container, m_display_container->width() * 2, m_display_container->height() * 2);
+		QGuiApplication::sync();
 		const QScreen* screen = m_display_container->screen();
 		if (screen)
 		{
@@ -3387,6 +3395,8 @@ void MainWindow::centerDisplayWindow()
 	}
 #endif
 
+	QtUtils::ResizePotentiallyFixedSizeWindow(this, width() * 2, height() * 2);
+	QGuiApplication::sync();
 	const QScreen* screen = this->screen();
 	if (screen)
 	{
@@ -3596,6 +3606,9 @@ void MainWindow::checkMousePosition(int x, int y)
 
 void MainWindow::saveDisplayWindowGeometryToConfig()
 {
+	if (QtHost::ShouldCenterDisplayWindow())
+		return;
+
 	if (m_display_surface->isFullScreen())
 	{
 		// if we somehow ended up here, don't save the fullscreen state to the config
