@@ -2260,7 +2260,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -input-recording-create <path>: Creates at an exact absolute path or a path relative to the primary InputRecordings folder.\n");
 	std::fprintf(stderr, "  -fullscreen: Enters fullscreen mode immediately after starting.\n");
 	std::fprintf(stderr, "  -nofullscreen: Prevents fullscreen mode from triggering if enabled.\n");
-	std::fprintf(stderr, "  -centered-window: Fits the game display at 2x scale and centers the window.\n");
+	std::fprintf(stderr, "  -centered-window: Fits and centers the window at approximately 1024x768, independent of display scaling.\n");
 	std::fprintf(stderr, "  -bigpicture: Forces PCSX2 to use the Big Picture mode (useful for controller-only and couch play).\n");
 	std::fprintf(stderr, "  -earlyconsolelog: Forces logging of early console messages to console.\n");
 	std::fprintf(stderr, "  -testconfig: Initializes configuration and checks version, then exits.\n");

@@ -3403,19 +3403,50 @@ void MainWindow::displayResizeRequested(qint32 width, qint32 height)
 	if (!m_display_surface)
 		return;
 
-	// unapply the pixel scaling factor for hidpi
-	const float dpr = devicePixelRatioF();
-	width = static_cast<qint32>(std::max(static_cast<int>(std::lroundf(static_cast<float>(width) / dpr)), 1));
-	height = static_cast<qint32>(std::max(static_cast<int>(std::lroundf(static_cast<float>(height) / dpr)), 1));
-
 	const bool center_window = m_center_display_window_on_next_resize;
 	m_center_display_window_on_next_resize = false;
+
+	width = std::max(width, 1);
+	height = std::max(height, 1);
+	const float dpr = devicePixelRatioF();
+	const QSize requested_display_size(
+		std::max(static_cast<int>(std::lroundf(static_cast<float>(width) / dpr)), 1),
+		std::max(static_cast<int>(std::lroundf(static_cast<float>(height) / dpr)), 1));
+
+	auto get_display_size = [center_window, width, height, requested_display_size](const QSize& frame_size,
+								const QSize& window_size, const QSize& chrome_size, float window_dpr) {
+		if (!center_window)
+			return requested_display_size;
+
+		static constexpr int TARGET_FRAME_WIDTH = 1024;
+		static constexpr int TARGET_FRAME_HEIGHT = 768;
+		const QSize target_frame_size(
+			std::max(static_cast<int>(std::lroundf(static_cast<float>(TARGET_FRAME_WIDTH) / window_dpr)), 1),
+			std::max(static_cast<int>(std::lroundf(static_cast<float>(TARGET_FRAME_HEIGHT) / window_dpr)), 1));
+		const QSize frame_chrome_size = frame_size - window_size;
+		const QSize maximum_display_size = target_frame_size - frame_chrome_size - chrome_size;
+		const int maximum_width = std::max(maximum_display_size.width(), 1);
+		const int maximum_height = std::max(maximum_display_size.height(), 1);
+		const float aspect_ratio = static_cast<float>(width) / static_cast<float>(height);
+
+		int fitted_width = maximum_width;
+		int fitted_height = std::max(static_cast<int>(std::lroundf(static_cast<float>(fitted_width) / aspect_ratio)), 1);
+		if (fitted_height > maximum_height)
+		{
+			fitted_height = maximum_height;
+			fitted_width = std::max(static_cast<int>(std::lroundf(static_cast<float>(fitted_height) * aspect_ratio)), 1);
+		}
+
+		return QSize(fitted_width, fitted_height);
+	};
 
 #ifdef DISPLAY_SURFACE_WINDOW
 	if (!m_display_container)
 	{
-		// no parent - rendering to separate window. easy.
-		QtUtils::ResizePotentiallyFixedSizeWindow(m_display_surface, width, height);
+		const QSize display_size = get_display_size(
+			m_display_surface->frameGeometry().size(), m_display_surface->geometry().size(), QSize(),
+			static_cast<float>(m_display_surface->devicePixelRatio()));
+		QtUtils::ResizePotentiallyFixedSizeWindow(m_display_surface, display_size.width(), display_size.height());
 		if (center_window)
 			centerDisplayWindow();
 		return;
@@ -3423,8 +3454,10 @@ void MainWindow::displayResizeRequested(qint32 width, qint32 height)
 #else
 	if (!m_display_container->parent())
 	{
-		// no parent - rendering to separate window. easy.
-		QtUtils::ResizePotentiallyFixedSizeWindow(m_display_container, width, height);
+		const QSize display_size = get_display_size(
+			m_display_container->frameGeometry().size(), m_display_container->geometry().size(), QSize(),
+			static_cast<float>(m_display_container->devicePixelRatioF()));
+		QtUtils::ResizePotentiallyFixedSizeWindow(m_display_container, display_size.width(), display_size.height());
 		if (center_window)
 			centerDisplayWindow();
 		return;
@@ -3432,7 +3465,10 @@ void MainWindow::displayResizeRequested(qint32 width, qint32 height)
 #endif
 
 	const QSize chrome_size = size() - m_display_container->size();
-	QtUtils::ResizePotentiallyFixedSizeWindow(this, width + chrome_size.width(), height + chrome_size.height());
+	const QSize display_size = get_display_size(
+		frameGeometry().size(), geometry().size(), chrome_size, static_cast<float>(devicePixelRatioF()));
+	QtUtils::ResizePotentiallyFixedSizeWindow(
+		this, display_size.width() + chrome_size.width(), display_size.height() + chrome_size.height());
 	if (center_window)
 		centerDisplayWindow();
 }
