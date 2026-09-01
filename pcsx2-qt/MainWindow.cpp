@@ -52,7 +52,12 @@
 
 #include <QtCore/QDateTime>
 #include <QtCore/QDir>
+#include <QtCore/QMimeData>
 #include <QtGui/QCloseEvent>
+#include <QtGui/QDrag>
+#include <QtGui/QDragEnterEvent>
+#include <QtGui/QDropEvent>
+#include <QtGui/QMouseEvent>
 #include <QtWidgets/QFileDialog>
 #include <QtWidgets/QInputDialog>
 #include <QtWidgets/QMessageBox>
@@ -106,6 +111,8 @@ static quint32 s_current_running_crc;
 
 static bool s_record_on_start = false;
 static QString s_path_to_recording_for_record_on_start;
+
+static constexpr const char* TOOLBAR_ACTION_MIME_TYPE = "application/x-pcsx2-toolbar-action";
 
 // DX cannot fullscreen when the display surface is in a container.
 // QWindow, however, seems to lack CSD under wayland, so needs the container.
@@ -273,8 +280,11 @@ void MainWindow::setupAdditionalUi()
 void MainWindow::setupToolbarCustomization()
 {
 	m_toolbar_actions = m_ui.toolBar->actions();
+	restoreToolbarActionOrder();
 	for (const std::string& action_name : Host::GetBaseStringListSetting("UI", "HiddenToolbarActions"))
 		m_hidden_toolbar_actions.push_back(QString::fromStdString(action_name));
+	m_ui.toolBar->setAcceptDrops(true);
+	m_ui.toolBar->installEventFilter(this);
 	rebuildToolbar();
 
 	m_toolbar_actions_menu = new QMenu(tr("Toolbar Buttons"), this);
@@ -283,7 +293,14 @@ void MainWindow::setupToolbarCustomization()
 
 	m_ui.toolBar->setContextMenuPolicy(Qt::CustomContextMenu);
 	connect(m_ui.toolBar, &QToolBar::customContextMenuRequested, this, [this](const QPoint& position) {
-		m_toolbar_actions_menu->exec(m_ui.toolBar->mapToGlobal(position));
+		QAction* toolbar_action = m_ui.toolBar->actionAt(position);
+		if (!toolbar_action || toolbar_action->isSeparator())
+			return;
+
+		QMenu menu(this);
+		QAction* hide_action = menu.addAction(toolbar_action->icon(), tr("Hide %1").arg(toolbar_action->text()));
+		if (menu.exec(m_ui.toolBar->mapToGlobal(position)) == hide_action)
+			setToolbarActionVisible(toolbar_action, false);
 	});
 }
 
@@ -310,22 +327,103 @@ void MainWindow::populateToolbarActionsMenu()
 		visibility_action->setCheckable(true);
 		visibility_action->setChecked(!m_hidden_toolbar_actions.contains(toolbar_action->objectName()));
 		connect(visibility_action, &QAction::toggled, this, [this, toolbar_action](bool visible) {
-			const QString action_name = toolbar_action->objectName();
-			if (visible)
-				m_hidden_toolbar_actions.removeAll(action_name);
-			else if (!m_hidden_toolbar_actions.contains(action_name))
-				m_hidden_toolbar_actions.push_back(action_name);
-
-			std::vector<std::string> hidden_actions;
-			hidden_actions.reserve(m_hidden_toolbar_actions.size());
-			for (const QString& hidden_action : m_hidden_toolbar_actions)
-				hidden_actions.push_back(hidden_action.toStdString());
-			Host::SetBaseStringListSettingValue("UI", "HiddenToolbarActions", hidden_actions);
-			Host::CommitBaseSettingChanges();
-			rebuildToolbar();
+			setToolbarActionVisible(toolbar_action, visible);
 		});
 		has_actions = true;
 	}
+}
+
+void MainWindow::restoreToolbarActionOrder()
+{
+	QList<QAction*> ordered_actions;
+	for (const std::string& action_name : Host::GetBaseStringListSetting("UI", "ToolbarActionOrder"))
+	{
+		const QString name = QString::fromStdString(action_name);
+		for (QAction* toolbar_action : m_toolbar_actions)
+		{
+			if (!toolbar_action->isSeparator() && toolbar_action->objectName() == name && !ordered_actions.contains(toolbar_action))
+			{
+				ordered_actions.push_back(toolbar_action);
+				break;
+			}
+		}
+	}
+
+	for (QAction* toolbar_action : m_toolbar_actions)
+	{
+		if (!toolbar_action->isSeparator() && !ordered_actions.contains(toolbar_action))
+			ordered_actions.push_back(toolbar_action);
+	}
+
+	auto ordered_action = ordered_actions.cbegin();
+	for (QAction*& toolbar_action : m_toolbar_actions)
+	{
+		if (!toolbar_action->isSeparator())
+			toolbar_action = *ordered_action++;
+	}
+}
+
+void MainWindow::saveToolbarActionOrder()
+{
+	std::vector<std::string> action_order;
+	action_order.reserve(m_toolbar_actions.size());
+	for (QAction* toolbar_action : m_toolbar_actions)
+	{
+		if (!toolbar_action->isSeparator())
+			action_order.push_back(toolbar_action->objectName().toStdString());
+	}
+	Host::SetBaseStringListSettingValue("UI", "ToolbarActionOrder", action_order);
+	Host::CommitBaseSettingChanges();
+}
+
+void MainWindow::setToolbarActionVisible(QAction* action, bool visible)
+{
+	const QString action_name = action->objectName();
+	if (visible)
+		m_hidden_toolbar_actions.removeAll(action_name);
+	else if (!m_hidden_toolbar_actions.contains(action_name))
+		m_hidden_toolbar_actions.push_back(action_name);
+
+	std::vector<std::string> hidden_actions;
+	hidden_actions.reserve(m_hidden_toolbar_actions.size());
+	for (const QString& hidden_action : m_hidden_toolbar_actions)
+		hidden_actions.push_back(hidden_action.toStdString());
+	Host::SetBaseStringListSettingValue("UI", "HiddenToolbarActions", hidden_actions);
+	Host::CommitBaseSettingChanges();
+	rebuildToolbar();
+}
+
+void MainWindow::moveToolbarAction(QAction* action, QAction* before_action)
+{
+	QList<QAction*> ordered_actions;
+	for (QAction* toolbar_action : m_toolbar_actions)
+	{
+		if (!toolbar_action->isSeparator() && toolbar_action != action)
+			ordered_actions.push_back(toolbar_action);
+	}
+
+	const qsizetype insert_index = before_action ? ordered_actions.indexOf(before_action) : ordered_actions.size();
+	ordered_actions.insert(insert_index < 0 ? ordered_actions.size() : insert_index, action);
+
+	auto ordered_action = ordered_actions.cbegin();
+	for (QAction*& toolbar_action : m_toolbar_actions)
+	{
+		if (!toolbar_action->isSeparator())
+			toolbar_action = *ordered_action++;
+	}
+
+	saveToolbarActionOrder();
+	rebuildToolbar();
+}
+
+QAction* MainWindow::getToolbarActionForWidget(QObject* widget) const
+{
+	for (QAction* toolbar_action : m_ui.toolBar->actions())
+	{
+		if (!toolbar_action->isSeparator() && m_ui.toolBar->widgetForAction(toolbar_action) == widget)
+			return toolbar_action;
+	}
+	return nullptr;
 }
 
 void MainWindow::rebuildToolbar()
@@ -349,8 +447,94 @@ void MainWindow::rebuildToolbar()
 			pending_separator = nullptr;
 		}
 		m_ui.toolBar->addAction(toolbar_action);
+		if (QWidget* action_widget = m_ui.toolBar->widgetForAction(toolbar_action))
+		{
+			action_widget->removeEventFilter(this);
+			action_widget->installEventFilter(this);
+		}
 		has_visible_actions = true;
 	}
+}
+
+bool MainWindow::eventFilter(QObject* watched, QEvent* event)
+{
+	QAction* toolbar_action = getToolbarActionForWidget(watched);
+	if (toolbar_action && event->type() == QEvent::MouseButtonPress)
+	{
+		const QMouseEvent* mouse_event = static_cast<QMouseEvent*>(event);
+		if (mouse_event->button() == Qt::LeftButton)
+		{
+			m_toolbar_drag_action = toolbar_action;
+			m_toolbar_drag_start_position = mouse_event->globalPosition().toPoint();
+		}
+	}
+	else if (toolbar_action && event->type() == QEvent::MouseMove)
+	{
+		const QMouseEvent* mouse_event = static_cast<QMouseEvent*>(event);
+		if (m_toolbar_drag_action == toolbar_action && (mouse_event->buttons() & Qt::LeftButton) &&
+			(mouse_event->globalPosition().toPoint() - m_toolbar_drag_start_position).manhattanLength() >=
+				QApplication::startDragDistance())
+		{
+			QDrag drag(m_ui.toolBar);
+			QMimeData* mime_data = new QMimeData();
+			mime_data->setData(TOOLBAR_ACTION_MIME_TYPE, toolbar_action->objectName().toUtf8());
+			drag.setMimeData(mime_data);
+			if (QWidget* action_widget = m_ui.toolBar->widgetForAction(toolbar_action))
+				drag.setPixmap(action_widget->grab());
+			m_toolbar_drag_action = nullptr;
+			drag.exec(Qt::MoveAction);
+			return true;
+		}
+	}
+	else if (event->type() == QEvent::MouseButtonRelease)
+	{
+		m_toolbar_drag_action = nullptr;
+	}
+	else if (watched == m_ui.toolBar && (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove))
+	{
+		QDropEvent* drag_event = static_cast<QDropEvent*>(event);
+		if (drag_event->mimeData()->hasFormat(TOOLBAR_ACTION_MIME_TYPE))
+		{
+			drag_event->acceptProposedAction();
+			return true;
+		}
+	}
+	else if (watched == m_ui.toolBar && event->type() == QEvent::Drop)
+	{
+		QDropEvent* drop_event = static_cast<QDropEvent*>(event);
+		const QString action_name = QString::fromUtf8(drop_event->mimeData()->data(TOOLBAR_ACTION_MIME_TYPE));
+		QAction* dropped_action = nullptr;
+		for (QAction* action : m_toolbar_actions)
+		{
+			if (!action->isSeparator() && action->objectName() == action_name)
+			{
+				dropped_action = action;
+				break;
+			}
+		}
+
+		if (dropped_action)
+		{
+			QAction* before_action = nullptr;
+			const QPoint drop_position = drop_event->position().toPoint();
+			for (QAction* action : m_ui.toolBar->actions())
+			{
+				QWidget* action_widget = m_ui.toolBar->widgetForAction(action);
+				if (!action->isSeparator() && action != dropped_action && action_widget &&
+					((m_ui.toolBar->orientation() == Qt::Horizontal && drop_position.x() < action_widget->geometry().center().x()) ||
+						(m_ui.toolBar->orientation() == Qt::Vertical && drop_position.y() < action_widget->geometry().center().y())))
+				{
+					before_action = action;
+					break;
+				}
+			}
+			moveToolbarAction(dropped_action, before_action);
+			drop_event->acceptProposedAction();
+			return true;
+		}
+	}
+
+	return QMainWindow::eventFilter(watched, event);
 }
 
 void MainWindow::setupStatusBarWidgets()

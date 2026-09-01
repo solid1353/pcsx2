@@ -5,6 +5,7 @@
 
 #include "common/WindowInfo.h"
 
+#include <QtCore/QPoint>
 #include <QtCore/QStringList>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QMainWindow>
@@ -228,6 +229,7 @@ private Q_SLOTS:
 	void onAchievementsHardcoreModeChanged(bool enabled);
 
 protected:
+	bool eventFilter(QObject* watched, QEvent* event) override;
 	void showEvent(QShowEvent* event) override;
 	void closeEvent(QCloseEvent* event) override;
 	void changeEvent(QEvent* event) override;
@@ -244,6 +246,11 @@ private:
 	void setupAdditionalUi();
 	void setupToolbarCustomization();
 	void populateToolbarActionsMenu();
+	void restoreToolbarActionOrder();
+	void saveToolbarActionOrder();
+	void setToolbarActionVisible(QAction* action, bool visible);
+	void moveToolbarAction(QAction* action, QAction* before_action);
+	QAction* getToolbarActionForWidget(QObject* widget) const;
 	void rebuildToolbar();
 	void setupStatusBarWidgets();
 	void applyStatusBarVolumeChanges(std::optional<int> volume, bool toggle_mute, std::optional<bool> override_per_game = std::nullopt);
@@ -345,6 +352,8 @@ private:
 	QMenu* m_toolbar_actions_menu = nullptr;
 	QList<QAction*> m_toolbar_actions;
 	QStringList m_hidden_toolbar_actions;
+	QAction* m_toolbar_drag_action = nullptr;
+	QPoint m_toolbar_drag_start_position;
 
 	bool m_display_created = false;
 	bool m_status_volume_muted = false;
