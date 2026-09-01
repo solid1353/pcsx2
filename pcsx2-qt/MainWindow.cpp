@@ -114,17 +114,6 @@ static QString s_path_to_recording_for_record_on_start;
 
 static constexpr const char* TOOLBAR_ACTION_MIME_TYPE = "application/x-pcsx2-toolbar-action";
 
-static QSize FitDisplaySizeToBounds(qint32 width, qint32 height, const QSize& bounds)
-{
-	if (width <= 0 || height <= 0 || bounds.width() <= 0 || bounds.height() <= 0)
-		return QSize(1, 1);
-
-	const double scale = std::min(static_cast<double>(bounds.width()) / static_cast<double>(width),
-		static_cast<double>(bounds.height()) / static_cast<double>(height));
-	return QSize(std::max(static_cast<int>(std::lround(static_cast<double>(width) * scale)), 1),
-		std::max(static_cast<int>(std::lround(static_cast<double>(height) * scale)), 1));
-}
-
 // DX cannot fullscreen when the display surface is in a container.
 // QWindow, however, seems to lack CSD under wayland, so needs the container.
 // MAC is unknown
@@ -2799,11 +2788,6 @@ void MainWindow::onVMStarted()
 	updateWindowTitle();
 	updateStatusBarWidgetVisibility();
 	updateInputRecordingActions(true);
-	if (QtHost::ShouldCenterDisplayWindow())
-	{
-		m_center_display_window_on_next_resize = true;
-		g_emu_thread->requestDisplaySize(0.0f);
-	}
 	if (s_record_on_start)
 	{
 		m_ui.actionVideoCapture->setChecked(true);
@@ -3363,6 +3347,54 @@ void MainWindow::createDisplayWidget(bool fullscreen, bool render_to_main)
 
 	// We need the surface visible.
 	QGuiApplication::sync();
+
+	// Keep the restored window size and change only its launch position.
+	if (QtHost::ShouldCenterDisplayWindow() && !fullscreen)
+	{
+#ifdef DISPLAY_SURFACE_WINDOW
+		if (!render_to_main)
+		{
+			const QScreen* screen = m_display_surface->screen();
+			if (screen)
+			{
+				const QRect available = screen->availableGeometry();
+				const QRect frame = m_display_surface->frameGeometry();
+				m_display_surface->setFramePosition(
+					QPoint(available.x() + (available.width() - frame.width()) / 2,
+						available.y() + (available.height() - frame.height()) / 2));
+			}
+		}
+		else
+#else
+		if (!render_to_main)
+		{
+			const QScreen* screen = m_display_container->screen();
+			if (screen)
+			{
+				const QRect available = screen->availableGeometry();
+				const QRect frame = m_display_container->frameGeometry();
+				const QPoint frame_offset = m_display_container->geometry().topLeft() - frame.topLeft();
+				m_display_container->move(
+					QPoint(available.x() + (available.width() - frame.width()) / 2,
+						available.y() + (available.height() - frame.height()) / 2) +
+					frame_offset);
+			}
+		}
+		else
+#endif
+		{
+			const QScreen* screen = this->screen();
+			if (screen)
+			{
+				const QRect available = screen->availableGeometry();
+				const QRect frame = frameGeometry();
+				const QPoint frame_offset = geometry().topLeft() - frame.topLeft();
+				move(QPoint(available.x() + (available.width() - frame.width()) / 2,
+						 available.y() + (available.height() - frame.height()) / 2) +
+					 frame_offset);
+			}
+		}
+	}
 }
 
 void MainWindow::displayResizeRequested(qint32 width, qint32 height)
@@ -3374,88 +3406,6 @@ void MainWindow::displayResizeRequested(qint32 width, qint32 height)
 	const float dpr = devicePixelRatioF();
 	width = static_cast<qint32>(std::max(static_cast<int>(std::lroundf(static_cast<float>(width) / dpr)), 1));
 	height = static_cast<qint32>(std::max(static_cast<int>(std::lroundf(static_cast<float>(height) / dpr)), 1));
-
-	if (m_center_display_window_on_next_resize)
-	{
-		m_center_display_window_on_next_resize = false;
-#ifdef DISPLAY_SURFACE_WINDOW
-		if (!m_display_container)
-		{
-			const QScreen* screen = m_display_surface->screen();
-			if (!screen)
-				return;
-
-			const QSize frame_size = m_display_surface->frameGeometry().size() - m_display_surface->size();
-			const QSize display_size = FitDisplaySizeToBounds(width, height, screen->availableGeometry().size() - frame_size);
-			QtUtils::ResizePotentiallyFixedSizeWindow(m_display_surface, display_size.width(), display_size.height());
-			QTimer::singleShot(0, this, [this]() {
-				if (!m_display_surface || m_display_container)
-					return;
-				const QScreen* target_screen = m_display_surface->screen();
-				if (!target_screen)
-					return;
-
-				const QRect available = target_screen->availableGeometry();
-				const QRect frame = m_display_surface->frameGeometry();
-				m_display_surface->setFramePosition(
-					QPoint(available.x() + (available.width() - frame.width()) / 2,
-						available.y() + (available.height() - frame.height()) / 2));
-			});
-			return;
-		}
-#else
-		if (!m_display_container->parent())
-		{
-			const QScreen* screen = m_display_container->screen();
-			if (!screen)
-				return;
-
-			const QSize frame_size = m_display_container->frameGeometry().size() - m_display_container->size();
-			const QSize display_size = FitDisplaySizeToBounds(width, height, screen->availableGeometry().size() - frame_size);
-			QtUtils::ResizePotentiallyFixedSizeWindow(m_display_container, display_size.width(), display_size.height());
-			QTimer::singleShot(0, this, [this]() {
-				if (!m_display_container || m_display_container->parent())
-					return;
-				const QScreen* target_screen = m_display_container->screen();
-				if (!target_screen)
-					return;
-
-				const QRect available = target_screen->availableGeometry();
-				const QRect frame = m_display_container->frameGeometry();
-				const QPoint frame_offset = m_display_container->geometry().topLeft() - frame.topLeft();
-				m_display_container->move(
-					QPoint(available.x() + (available.width() - frame.width()) / 2,
-						available.y() + (available.height() - frame.height()) / 2) +
-					frame_offset);
-			});
-			return;
-		}
-#endif
-
-		const QScreen* screen = this->screen();
-		if (!screen)
-			return;
-
-		const QSize frame_size = frameGeometry().size() - size();
-		const QSize content_size = size() - m_display_container->size();
-		const QSize display_size =
-			FitDisplaySizeToBounds(width, height, screen->availableGeometry().size() - frame_size - content_size);
-		QtUtils::ResizePotentiallyFixedSizeWindow(
-			this, display_size.width() + content_size.width(), display_size.height() + content_size.height());
-		QTimer::singleShot(0, this, [this]() {
-			const QScreen* target_screen = this->screen();
-			if (!target_screen)
-				return;
-
-			const QRect available = target_screen->availableGeometry();
-			const QRect frame = frameGeometry();
-			const QPoint frame_offset = geometry().topLeft() - frame.topLeft();
-			move(QPoint(available.x() + (available.width() - frame.width()) / 2,
-					 available.y() + (available.height() - frame.height()) / 2) +
-				 frame_offset);
-		});
-		return;
-	}
 
 #ifdef DISPLAY_SURFACE_WINDOW
 	if (!m_display_container)
@@ -3644,9 +3594,6 @@ void MainWindow::checkMousePosition(int x, int y)
 
 void MainWindow::saveDisplayWindowGeometryToConfig()
 {
-	if (QtHost::ShouldCenterDisplayWindow())
-		return;
-
 	if (m_display_surface->isFullScreen())
 	{
 		// if we somehow ended up here, don't save the fullscreen state to the config
