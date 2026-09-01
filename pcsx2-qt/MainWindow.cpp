@@ -285,6 +285,13 @@ void MainWindow::setupToolbarCustomization()
 		m_hidden_toolbar_actions.push_back(QString::fromStdString(action_name));
 	m_ui.toolBar->setAcceptDrops(true);
 	m_ui.toolBar->installEventFilter(this);
+	for (QAction* toolbar_action : m_toolbar_actions)
+	{
+		connect(toolbar_action, &QAction::changed, this, [this, toolbar_action]() {
+			if (QWidget* action_widget = m_ui.toolBar->widgetForAction(toolbar_action))
+				action_widget->setAttribute(Qt::WA_TransparentForMouseEvents, !toolbar_action->isEnabled());
+		});
+	}
 	rebuildToolbar();
 
 	m_toolbar_actions_menu = new QMenu(tr("Toolbar Buttons"), this);
@@ -294,7 +301,7 @@ void MainWindow::setupToolbarCustomization()
 	m_ui.toolBar->setContextMenuPolicy(Qt::CustomContextMenu);
 	connect(m_ui.toolBar, &QToolBar::customContextMenuRequested, this, [this](const QPoint& position) {
 		QAction* toolbar_action = m_ui.toolBar->actionAt(position);
-		if (!toolbar_action || toolbar_action->isSeparator())
+		if (!toolbar_action)
 			return;
 
 		QMenu menu(this);
@@ -307,29 +314,14 @@ void MainWindow::setupToolbarCustomization()
 void MainWindow::populateToolbarActionsMenu()
 {
 	m_toolbar_actions_menu->clear();
-	bool has_actions = false;
-	bool separator_pending = false;
 	for (QAction* toolbar_action : m_toolbar_actions)
 	{
-		if (toolbar_action->isSeparator())
-		{
-			separator_pending = has_actions;
-			continue;
-		}
-
-		if (separator_pending)
-		{
-			m_toolbar_actions_menu->addSeparator();
-			separator_pending = false;
-		}
-
 		QAction* visibility_action = m_toolbar_actions_menu->addAction(toolbar_action->icon(), toolbar_action->text());
 		visibility_action->setCheckable(true);
 		visibility_action->setChecked(!m_hidden_toolbar_actions.contains(toolbar_action->objectName()));
 		connect(visibility_action, &QAction::toggled, this, [this, toolbar_action](bool visible) {
 			setToolbarActionVisible(toolbar_action, visible);
 		});
-		has_actions = true;
 	}
 }
 
@@ -341,7 +333,7 @@ void MainWindow::restoreToolbarActionOrder()
 		const QString name = QString::fromStdString(action_name);
 		for (QAction* toolbar_action : m_toolbar_actions)
 		{
-			if (!toolbar_action->isSeparator() && toolbar_action->objectName() == name && !ordered_actions.contains(toolbar_action))
+			if (toolbar_action->objectName() == name && !ordered_actions.contains(toolbar_action))
 			{
 				ordered_actions.push_back(toolbar_action);
 				break;
@@ -351,16 +343,10 @@ void MainWindow::restoreToolbarActionOrder()
 
 	for (QAction* toolbar_action : m_toolbar_actions)
 	{
-		if (!toolbar_action->isSeparator() && !ordered_actions.contains(toolbar_action))
+		if (!ordered_actions.contains(toolbar_action))
 			ordered_actions.push_back(toolbar_action);
 	}
-
-	auto ordered_action = ordered_actions.cbegin();
-	for (QAction*& toolbar_action : m_toolbar_actions)
-	{
-		if (!toolbar_action->isSeparator())
-			toolbar_action = *ordered_action++;
-	}
+	m_toolbar_actions = ordered_actions;
 }
 
 void MainWindow::saveToolbarActionOrder()
@@ -368,10 +354,7 @@ void MainWindow::saveToolbarActionOrder()
 	std::vector<std::string> action_order;
 	action_order.reserve(m_toolbar_actions.size());
 	for (QAction* toolbar_action : m_toolbar_actions)
-	{
-		if (!toolbar_action->isSeparator())
-			action_order.push_back(toolbar_action->objectName().toStdString());
-	}
+		action_order.push_back(toolbar_action->objectName().toStdString());
 	Host::SetBaseStringListSettingValue("UI", "ToolbarActionOrder", action_order);
 	Host::CommitBaseSettingChanges();
 }
@@ -395,22 +378,9 @@ void MainWindow::setToolbarActionVisible(QAction* action, bool visible)
 
 void MainWindow::moveToolbarAction(QAction* action, QAction* before_action)
 {
-	QList<QAction*> ordered_actions;
-	for (QAction* toolbar_action : m_toolbar_actions)
-	{
-		if (!toolbar_action->isSeparator() && toolbar_action != action)
-			ordered_actions.push_back(toolbar_action);
-	}
-
-	const qsizetype insert_index = before_action ? ordered_actions.indexOf(before_action) : ordered_actions.size();
-	ordered_actions.insert(insert_index < 0 ? ordered_actions.size() : insert_index, action);
-
-	auto ordered_action = ordered_actions.cbegin();
-	for (QAction*& toolbar_action : m_toolbar_actions)
-	{
-		if (!toolbar_action->isSeparator())
-			toolbar_action = *ordered_action++;
-	}
+	m_toolbar_actions.removeAll(action);
+	const qsizetype insert_index = before_action ? m_toolbar_actions.indexOf(before_action) : m_toolbar_actions.size();
+	m_toolbar_actions.insert(insert_index < 0 ? m_toolbar_actions.size() : insert_index, action);
 
 	saveToolbarActionOrder();
 	rebuildToolbar();
@@ -420,7 +390,7 @@ QAction* MainWindow::getToolbarActionForWidget(QObject* widget) const
 {
 	for (QAction* toolbar_action : m_ui.toolBar->actions())
 	{
-		if (!toolbar_action->isSeparator() && m_ui.toolBar->widgetForAction(toolbar_action) == widget)
+		if (m_ui.toolBar->widgetForAction(toolbar_action) == widget)
 			return toolbar_action;
 	}
 	return nullptr;
@@ -429,30 +399,18 @@ QAction* MainWindow::getToolbarActionForWidget(QObject* widget) const
 void MainWindow::rebuildToolbar()
 {
 	m_ui.toolBar->clear();
-	QAction* pending_separator = nullptr;
-	bool has_visible_actions = false;
 	for (QAction* toolbar_action : m_toolbar_actions)
 	{
-		if (toolbar_action->isSeparator())
-		{
-			pending_separator = has_visible_actions ? toolbar_action : nullptr;
-			continue;
-		}
 		if (m_hidden_toolbar_actions.contains(toolbar_action->objectName()))
 			continue;
 
-		if (pending_separator)
-		{
-			m_ui.toolBar->addAction(pending_separator);
-			pending_separator = nullptr;
-		}
 		m_ui.toolBar->addAction(toolbar_action);
 		if (QWidget* action_widget = m_ui.toolBar->widgetForAction(toolbar_action))
 		{
+			action_widget->setAttribute(Qt::WA_TransparentForMouseEvents, !toolbar_action->isEnabled());
 			action_widget->removeEventFilter(this);
 			action_widget->installEventFilter(this);
 		}
-		has_visible_actions = true;
 	}
 }
 
@@ -506,7 +464,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 		QAction* dropped_action = nullptr;
 		for (QAction* action : m_toolbar_actions)
 		{
-			if (!action->isSeparator() && action->objectName() == action_name)
+			if (action->objectName() == action_name)
 			{
 				dropped_action = action;
 				break;
@@ -520,7 +478,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 			for (QAction* action : m_ui.toolBar->actions())
 			{
 				QWidget* action_widget = m_ui.toolBar->widgetForAction(action);
-				if (!action->isSeparator() && action != dropped_action && action_widget &&
+				if (action != dropped_action && action_widget &&
 					((m_ui.toolBar->orientation() == Qt::Horizontal && drop_position.x() < action_widget->geometry().center().x()) ||
 						(m_ui.toolBar->orientation() == Qt::Vertical && drop_position.y() < action_widget->geometry().center().y())))
 				{
