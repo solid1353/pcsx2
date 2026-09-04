@@ -202,7 +202,7 @@ namespace VMManager
 
 	/// Ensures the target speed reflects the current configuration. Call if you change anything in
 	/// EmuConfig.EmulationSpeed without going through the usual config apply.
-	void UpdateTargetSpeed();
+	void UpdateTargetSpeed(bool force = false);
 
 	/// Returns true if the target speed is being synchronized with the host's refresh rate.
 	bool IsTargetSpeedAdjustedToHost();

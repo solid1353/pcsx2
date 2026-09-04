@@ -1675,6 +1675,10 @@ VMBootResult VMManager::Initialize(const VMBootParameters& boot_params, Error* e
 		Error::SetString(error, TRANSLATE_STR("VMManager", "Failed to initialize SPU2."));
 		return VMBootResult::StartupFailure;
 	}
+
+	// Startup limiter selection happens before the GS and SPU2 are opened. Force the runtime
+	// side effects now that both subsystems are available, matching a limiter-mode hotkey change.
+	UpdateTargetSpeed(true);
 	ScopedGuard close_spu2(&SPU2::Close);
 
 
@@ -2348,7 +2352,7 @@ float VMManager::GetTargetSpeedForLimiterMode(LimiterModeType mode)
 	}
 }
 
-void VMManager::UpdateTargetSpeed()
+void VMManager::UpdateTargetSpeed(bool force)
 {
 	const float frame_rate = GetFrameRate();
 	float target_speed = GetTargetSpeedForLimiterMode(s_limiter_mode);
@@ -2390,7 +2394,7 @@ void VMManager::UpdateTargetSpeed()
 	DevCon.WriteLn(fmt::format("Frame rate: {}, target speed: {}, target frame rate: {}, ticks per frame: {}", frame_rate, target_speed,
 		target_frame_rate, s_limiter_ticks_per_frame));
 
-	if (s_target_speed != target_speed)
+	if (force || s_target_speed != target_speed)
 	{
 		s_target_speed = target_speed;
 
