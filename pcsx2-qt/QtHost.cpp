@@ -239,6 +239,11 @@ void EmuThread::startVM(std::shared_ptr<VMBootParameters> boot_params)
 		boot_params->start_unlimited_frame_count = s_unlimited_frame_count;
 		boot_params->unlimited_frame_fallback_mode = s_unlimited_frame_fallback_mode;
 	}
+	else if (!boot_params->start_turbo.has_value() && !boot_params->start_unlimited.has_value() &&
+			 Host::GetBaseBoolSettingValue("Framerate", "StartInUnlimitedMode", false))
+	{
+		boot_params->start_unlimited = true;
+	}
 
 	// Determine whether to start fullscreen or not.
 	m_is_rendering_to_main = shouldRenderToMain();

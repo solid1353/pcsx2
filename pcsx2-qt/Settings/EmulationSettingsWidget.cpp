@@ -47,6 +47,8 @@ EmulationSettingsWidget::EmulationSettingsWidget(SettingsWindow* settings_dialog
 
 	if (dialog()->isPerGameSettings())
 	{
+		m_ui.startInUnlimitedMode->hide();
+
 		SettingWidgetBinder::DateTimeKeys rtc_keys;
 		rtc_keys.year = "RtcYear";
 		rtc_keys.month = "RtcMonth";
@@ -78,6 +80,7 @@ EmulationSettingsWidget::EmulationSettingsWidget(SettingsWindow* settings_dialog
 	{
 		m_ui.rtcGroup->hide();
 
+		SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.startInUnlimitedMode, "Framerate", "StartInUnlimitedMode", false);
 		SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.cheats, "EmuCore", "EnableCheats", false);
 
 		// Allow for FastCDVD for per-game settings only
@@ -108,6 +111,8 @@ EmulationSettingsWidget::EmulationSettingsWidget(SettingsWindow* settings_dialog
 	//: The "User Preference" string will appear after the text "Recommended Value:"
 	dialog()->registerWidgetHelp(m_ui.slowMotionSpeed, tr("Slow-Motion Speed"), tr("User Preference"),
 		tr("Sets the slow-motion speed. This speed will be used when the slow-motion hotkey is pressed/toggled."));
+	dialog()->registerWidgetHelp(m_ui.startInUnlimitedMode, tr("Start Games in Unlimited Mode"), tr("Unchecked"),
+		tr("Starts games with the frame limiter disabled. Use the Toggle Frame Limit hotkey (F4 by default) to return to normal speed."));
 
 	dialog()->registerWidgetHelp(m_ui.eeCycleRate, tr("EE Cycle Rate"), tr("100% (Normal Speed)"),
 		tr("Higher values may increase internal framerate in games, but will increase CPU requirements substantially. "

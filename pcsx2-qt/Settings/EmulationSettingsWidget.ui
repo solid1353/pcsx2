@@ -56,6 +56,13 @@
       <item row="0" column="1">
        <widget class="QComboBox" name="normalSpeed"/>
       </item>
+      <item row="3" column="0" colspan="2">
+       <widget class="QCheckBox" name="startInUnlimitedMode">
+        <property name="text">
+         <string>Start Games in Unlimited Mode</string>
+        </property>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>
