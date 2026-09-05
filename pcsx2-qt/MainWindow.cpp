@@ -859,7 +859,7 @@ void MainWindow::connectSignals()
 	connect(m_ui.actionToolbarHotkeySettings, &QAction::triggered,
 		[this]() { doControllerSettings(ControllerSettingsWindow::Category::HotkeySettings); });
 	connect(m_ui.actionToolbarScreenshot, &QAction::triggered, this, &MainWindow::onScreenshotActionTriggered);
-	connect(m_ui.actionToolbarRecenter, &QAction::triggered, this, &MainWindow::centerDisplayWindow);
+	connect(m_ui.actionToolbarRecenter, &QAction::triggered, []() { g_emu_thread->requestDisplaySize(0.0f); });
 	connect(m_ui.actionExit, &QAction::triggered, this, &MainWindow::close);
 	connect(m_ui.actionScreenshot, &QAction::triggered, this, &MainWindow::onScreenshotActionTriggered);
 	connect(m_ui.menuLoadState, &QMenu::aboutToShow, this, &MainWindow::onLoadStateMenuAboutToShow);
