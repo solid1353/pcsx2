@@ -381,21 +381,6 @@ enum class GSDumpCompressionMethod : u8
 	Zstandard,
 };
 
-enum class SavestateCompressionMethod : u8
-{
-	Uncompressed = 0,
-	Deflate = 1,
-	Zstandard = 2
-};
-
-enum class SavestateCompressionLevel : u8
-{
-	Low = 0,
-	Medium = 1,
-	High = 2,
-	VeryHigh = 3,
-};
-
 enum class GSHardwareDownloadMode : u8
 {
 	Enabled,
@@ -1328,20 +1313,6 @@ struct Pcsx2Config
 		bool operator!=(const AchievementsOptions& right) const;
 	};
 
-	struct SavestateOptions
-	{
-		SavestateOptions();
-		void LoadSave(SettingsWrapper& wrap);
-
-		SavestateCompressionMethod CompressionType = SavestateCompressionMethod::Zstandard;
-		SavestateCompressionLevel CompressionRatio = SavestateCompressionLevel::Medium;
-
-		bool operator==(const SavestateOptions& right) const;
-		bool operator!=(const SavestateOptions& right) const;
-	};
-
-	// ------------------------------------------------------------------------
-
 	BITFIELD32()
 	bool
 		CdvdVerboseReads : 1, // enables cdvd read activity verbosely dumped to the console
@@ -1378,7 +1349,6 @@ struct Pcsx2Config
 	ProfilerOptions Profiler;
 	DebugAnalysisOptions DebuggerAnalysis;
 	EmulationSpeedOptions EmulationSpeed;
-	SavestateOptions Savestate;
 	SPU2Options SPU2;
 	DEV9Options DEV9;
 	USBOptions USB;

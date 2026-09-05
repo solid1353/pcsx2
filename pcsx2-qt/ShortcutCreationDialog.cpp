@@ -39,7 +39,7 @@ ShortcutCreationDialog::ShortcutCreationDialog(QWidget* parent, const QString& t
 	});
 
 	connect(m_ui.loadStateFileBrowse, &QPushButton::clicked, [&]() {
-		const QString path = QFileDialog::getOpenFileName(this, tr("Select Save State File"), QString(), tr("Save States (*.p2s);;All Files (*.*)"));
+		const QString path = QFileDialog::getExistingDirectory(this, tr("Select Save State Directory"));
 		if (!path.isEmpty())
 			m_ui.loadStateFilePath->setText(Path::ToNativePath(path.toStdString()).c_str());
 	});

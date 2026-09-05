@@ -19,8 +19,6 @@ private:
 	int getGlobalClampingModeIndex(int vunum) const;
 	int getClampingModeIndex(int vunum) const;
 	void setClampingMode(int vunum, int index);
-	void onSavestateCompressionTypeChanged();
-
 	SettingsWindow* m_dialog;
 	Ui::AdvancedSystemSettingsWidget m_ui;
 };

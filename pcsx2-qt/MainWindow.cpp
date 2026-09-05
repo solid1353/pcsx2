@@ -2969,7 +2969,7 @@ void MainWindow::dragEnterEvent(QDragEnterEvent* event)
 	const std::string filename(getFilenameFromMimeData(event->mimeData()).toStdString());
 
 	// allow save states being dragged in
-	if (!VMManager::IsLoadableFileName(filename) && !VMManager::IsSaveStateFileName(filename))
+	if (!VMManager::IsLoadableFileName(filename) && !VMManager::IsSaveStatePath(filename))
 		return;
 
 	event->acceptProposedAction();
@@ -2993,7 +2993,7 @@ bool MainWindow::startFile(const QString& filename)
 
 	std::string filename_str = filename.toStdString();
 
-	if (VMManager::IsSaveStateFileName(filename_str))
+	if (VMManager::IsSaveStatePath(filename_str))
 	{
 		// can't load a save state without a current VM
 		if (s_vm_valid)
@@ -3833,7 +3833,7 @@ void MainWindow::startGameListEntry(const GameList::Entry& entry, std::optional<
 	if (save_slot.has_value() && !entry.serial.empty())
 	{
 		std::string state_filename = VMManager::GetSaveStateFileName(entry.serial.c_str(), entry.crc, save_slot.value(), load_backup);
-		if (!FileSystem::FileExists(state_filename.c_str()))
+		if (!FileSystem::DirectoryExists(state_filename.c_str()))
 		{
 			QMessageBox::critical(this, tr("Error"), tr("This save state does not exist."));
 			return;
@@ -4032,8 +4032,8 @@ std::optional<bool> MainWindow::promptForResumeState(const QString& save_state_p
 	}
 	else if (delboot == clicked)
 	{
-		if (!QFile::remove(save_state_path))
-			QMessageBox::critical(this, tr("Error"), tr("Failed to delete save state file '%1'.").arg(save_state_path));
+		if (!FileSystem::RecursiveDeleteDirectory(save_state_path.toStdString().c_str()))
+			QMessageBox::critical(this, tr("Error"), tr("Failed to delete save state directory '%1'.").arg(save_state_path));
 
 		return false;
 	}
@@ -4091,10 +4091,10 @@ void MainWindow::populateLoadStateMenu(QMenu* menu, const QString& filename, con
 	const bool is_right_click_menu = (menu != m_ui.menuLoadState);
 	bool has_any_states = false;
 
-	QAction* action = menu->addAction(is_right_click_menu ? tr("Load State File...") : tr("Load From File..."));
+	QAction* action = menu->addAction(is_right_click_menu ? tr("Load State Directory...") : tr("Load From Directory..."));
 	connect(action, &QAction::triggered, [this, filename]() {
-		const QString path = QDir::toNativeSeparators(QFileDialog::getOpenFileName(this,
-			tr("Select Save State File"), QString(), tr("Save States (*.p2s *.p2s.backup)")));
+		const QString path = QDir::toNativeSeparators(
+			QFileDialog::getExistingDirectory(this, tr("Select Save State Directory")));
 		if (path.isEmpty())
 			return;
 
@@ -4166,9 +4166,9 @@ void MainWindow::populateSaveStateMenu(QMenu* menu, const QString& serial, quint
 	if (serial.isEmpty())
 		return;
 
-	connect(menu->addAction(tr("Save To File...")), &QAction::triggered, [this]() {
+	connect(menu->addAction(tr("Save To Directory...")), &QAction::triggered, [this]() {
 		const QString path = QDir::toNativeSeparators(QFileDialog::getSaveFileName(
-			this, tr("Select Save State File"), QString(), tr("Save States (*.p2s)")));
+			this, tr("Select Save State Directory"), QString(), tr("Save State Directory (*)")));
 		if (path.isEmpty())
 			return;
 

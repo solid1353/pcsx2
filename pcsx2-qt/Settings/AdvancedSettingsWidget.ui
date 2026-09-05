@@ -407,81 +407,18 @@
       <string>Savestate Settings</string>
      </property>
      <layout class="QGridLayout" name="savestateSettingsLayout">
-      <item row="3" column="0">
+      <item row="0" column="0">
        <widget class="QCheckBox" name="backupSaveStates">
         <property name="text">
          <string>Create Save State Backups</string>
         </property>
        </widget>
       </item>
-      <item row="0" column="0">
-       <widget class="QLabel" name="savestateCompressionLabel">
-        <property name="text">
-         <string>Compression Method:</string>
-        </property>
-        <property name="buddy">
-         <cstring>savestateCompressionMethod</cstring>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="1">
-       <widget class="QComboBox" name="savestateCompressionLevel">
-        <item>
-         <property name="text">
-          <string>Low (Fast)</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>Medium (Recommended)</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>High</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>Very High (Slow, Not Recommended)</string>
-         </property>
-        </item>
-       </widget>
-      </item>
-      <item row="1" column="0">
-       <widget class="QLabel" name="savestateCompressionMethodLabel">
-        <property name="text">
-         <string>Compression Level:</string>
-        </property>
-        <property name="buddy">
-         <cstring>savestateCompressionLevel</cstring>
-        </property>
-       </widget>
-      </item>
-      <item row="3" column="1">
+      <item row="0" column="1">
        <widget class="QCheckBox" name="saveStateOnShutdown">
         <property name="text">
          <string>Save State On Shutdown</string>
         </property>
-       </widget>
-      </item>
-      <item row="0" column="1">
-       <widget class="QComboBox" name="savestateCompressionMethod">
-        <item>
-         <property name="text">
-          <string>Uncompressed</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>Deflate</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>Zstandard</string>
-         </property>
-        </item>
        </widget>
       </item>
      </layout>
@@ -566,8 +503,6 @@
   <tabstop>iopRecompiler</tabstop>
   <tabstop>gameFixes</tabstop>
   <tabstop>patches</tabstop>
-  <tabstop>savestateCompressionMethod</tabstop>
-  <tabstop>savestateCompressionLevel</tabstop>
   <tabstop>backupSaveStates</tabstop>
   <tabstop>saveStateOnShutdown</tabstop>
   <tabstop>pineEnable</tabstop>

@@ -48,18 +48,18 @@ struct SaveStateScreenshotData
 	std::vector<u32> pixels;
 };
 
-class ArchiveEntryList;
+class SaveStateEntryList;
 
 // Wrappers to generate a save state compatible across all frontends.
 // These functions assume that the caller has paused the core thread.
-extern std::unique_ptr<ArchiveEntryList> SaveState_DownloadState(Error* error);
+extern std::unique_ptr<SaveStateEntryList> SaveState_DownloadState(Error* error);
 extern std::unique_ptr<SaveStateScreenshotData> SaveState_SaveScreenshot();
 extern bool SaveState_SaveScreenshotToFile(const char* filename, Error* error);
-extern bool SaveState_ZipToDisk(
-	std::unique_ptr<ArchiveEntryList> srclist, std::unique_ptr<SaveStateScreenshotData> screenshot,
-	const char* filename, const char* screenshot_filename, Error* error);
-extern bool SaveState_ReadScreenshot(const std::string& filename, u32* out_width, u32* out_height, std::vector<u32>* out_pixels);
-extern bool SaveState_UnzipFromDisk(const std::string& filename, Error* error);
+extern bool SaveState_SaveToDirectory(
+	std::unique_ptr<SaveStateEntryList> srclist, std::unique_ptr<SaveStateScreenshotData> screenshot,
+	const char* directory, const char* screenshot_filename, Error* error);
+extern bool SaveState_ReadScreenshot(const std::string& directory, u32* out_width, u32* out_height, std::vector<u32>* out_pixels);
+extern bool SaveState_LoadFromDirectory(const std::string& directory, Error* error);
 
 // --------------------------------------------------------------------------------------
 //  SaveStateBase class
@@ -226,9 +226,9 @@ protected:
 };
 
 // --------------------------------------------------------------------------------------
-//  ArchiveEntry
+//  SaveStateEntry
 // --------------------------------------------------------------------------------------
-class ArchiveEntry final
+class SaveStateEntry final
 {
 protected:
 	std::string m_filename;
@@ -236,22 +236,22 @@ protected:
 	size_t m_datasize;
 
 public:
-	ArchiveEntry(std::string filename)
+	SaveStateEntry(std::string filename)
 		: m_filename(std::move(filename))
 	{
 		m_dataidx = 0;
 		m_datasize = 0;
 	}
 
-	~ArchiveEntry() = default;
+	~SaveStateEntry() = default;
 
-	ArchiveEntry& SetDataIndex(uptr idx)
+	SaveStateEntry& SetDataIndex(uptr idx)
 	{
 		m_dataidx = idx;
 		return *this;
 	}
 
-	ArchiveEntry& SetDataSize(size_t size)
+	SaveStateEntry& SetDataSize(size_t size)
 	{
 		m_datasize = size;
 		return *this;
@@ -274,21 +274,21 @@ public:
 };
 
 // --------------------------------------------------------------------------------------
-//  ArchiveEntryList
+//  SaveStateEntryList
 // --------------------------------------------------------------------------------------
-class ArchiveEntryList final
+class SaveStateEntryList final
 {
 public:
 	using VmStateBuffer = std::vector<u8>;
-	DeclareNoncopyableObject(ArchiveEntryList);
+	DeclareNoncopyableObject(SaveStateEntryList);
 
 protected:
-	std::vector<ArchiveEntry> m_list;
+	std::vector<SaveStateEntry> m_list;
 	VmStateBuffer m_data;
 
 public:
-	ArchiveEntryList() = default;
-	~ArchiveEntryList() = default;
+	SaveStateEntryList() = default;
+	~SaveStateEntryList() = default;
 
 	const VmStateBuffer& GetBuffer() const
 	{
@@ -310,7 +310,7 @@ public:
 		return &m_data[idx];
 	}
 
-	ArchiveEntryList& Add(const ArchiveEntry& src)
+	SaveStateEntryList& Add(const SaveStateEntry& src)
 	{
 		m_list.push_back(src);
 		return *this;
@@ -321,12 +321,12 @@ public:
 		return m_list.size();
 	}
 
-	ArchiveEntry& operator[](uint idx)
+	SaveStateEntry& operator[](uint idx)
 	{
 		return m_list[idx];
 	}
 
-	const ArchiveEntry& operator[](uint idx) const
+	const SaveStateEntry& operator[](uint idx) const
 	{
 		return m_list[idx];
 	}

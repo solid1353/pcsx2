@@ -46,18 +46,6 @@
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 		</dict>
-		<dict>
-			<key>CFBundleTypeExtensions</key>
-			<array>
-				<string>p2s</string>
-			</array>
-			<key>CFBundleTypeIconFile</key>
-			<string>PCSX2.icns</string>
-			<key>CFBundleTypeName</key>
-			<string>PCSX2 Save State</string>
-			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
-		</dict>
 	</array>
 	<key>CFBundleExecutable</key>
 	<string>PCSX2</string>
@@ -208,23 +196,6 @@
 				<key>public.filename-extension</key>
 				<array>
 					<string>ps2</string>
-				</array>
-			</dict>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>net.pcsx2.savestate</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>PCSX2 Save State</string>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>p2s</string>
 				</array>
 			</dict>
 		</dict>

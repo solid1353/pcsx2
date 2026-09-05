@@ -155,6 +155,30 @@ InputRecordingCaptureDirectories GetInputRecordingCaptureDirectories(const std::
 
 InputRecording g_InputRecording;
 
+static void BackupInputRecordingSaveState(const std::string& source)
+{
+	if (!FileSystem::DirectoryExists(source.c_str()))
+		return;
+
+	const std::string destination = fmt::format("{}.backup", source);
+	if ((FileSystem::DirectoryExists(destination.c_str()) &&
+			!FileSystem::RecursiveDeleteDirectory(destination.c_str())) ||
+		!FileSystem::CreateDirectoryPath(destination.c_str(), false))
+	{
+		return;
+	}
+
+	FileSystem::FindResultsArray files;
+	if (!FileSystem::FindFiles(source.c_str(), "*", FILESYSTEM_FIND_FILES, &files))
+		return;
+
+	for (const FILESYSTEM_FIND_DATA& file : files)
+	{
+		FileSystem::CopyFilePath(
+			file.FileName.c_str(), Path::Combine(destination, Path::GetFileName(file.FileName)).c_str(), true);
+	}
+}
+
 bool InputRecording::create(const std::string& fileName, const bool fromSaveState, const std::string& authorName)
 {
 	m_capture_markers = false;
@@ -175,11 +199,8 @@ bool InputRecording::create(const std::string& fileName, const bool fromSaveStat
 	m_controls.setRecordMode();
 	if (fromSaveState)
 	{
-		std::string savestatePath = fmt::format("{}_SaveState.p2s", fileName);
-		if (FileSystem::FileExists(savestatePath.c_str()))
-		{
-			FileSystem::CopyFilePath(savestatePath.c_str(), fmt::format("{}.bak", savestatePath).c_str(), true);
-		}
+		std::string savestatePath = fmt::format("{}_SaveState", fileName);
+		BackupInputRecordingSaveState(savestatePath);
 		m_type = Type::FROM_SAVESTATE;
 		m_is_active = true;
 		m_initial_load_complete = true;
@@ -262,10 +283,10 @@ bool InputRecording::play(const std::string& filename, bool capture_markers, con
 	// Either load the savestate, or restart the game
 	if (m_file.fromSaveState())
 	{
-		std::string savestatePath = fmt::format("{}_SaveState.p2s", m_file.getFilename());
-		if (!FileSystem::FileExists(savestatePath.c_str()))
+		std::string savestatePath = fmt::format("{}_SaveState", m_file.getFilename());
+		if (!FileSystem::DirectoryExists(savestatePath.c_str()))
 		{
-			InputRec::consoleLog(fmt::format("Could not locate savestate file at location - {}", savestatePath));
+			InputRec::consoleLog(fmt::format("Could not locate savestate directory at location - {}", savestatePath));
 			InputRec::log(TRANSLATE_STR("InputRecording", "Failed to load state for input recording"), Host::OSD_ERROR_DURATION);
 			m_file.close();
 			return false;
@@ -392,8 +413,7 @@ void InputRecording::captureReplayMarker()
 	}
 	else
 	{
-		const std::string savestate_path =
-			Path::Combine(m_capture_savestate_directory, fmt::format("{}.p2s", capture_name));
+		const std::string savestate_path = Path::Combine(m_capture_savestate_directory, capture_name);
 		VMManager::SaveState(savestate_path.c_str(), true, false, [capture_name](const std::string& error) {
 			if (!error.empty())
 				InputRec::consoleLog(fmt::format("Failed to save replay marker {}: {}", capture_name, error)); }, snapshot_path);

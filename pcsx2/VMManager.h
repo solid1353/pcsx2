@@ -163,7 +163,7 @@ namespace VMManager
 	/// Can be forced to load even when there is not an active virtual machine.
 	void ReloadInputBindings(bool force = false);
 
-	/// Returns the save state filename for the given game serial/crc.
+	/// Returns the save state path for the given game serial/crc.
 	std::string GetSaveStateFileName(const char* game_serial, u32 game_crc, s32 slot, bool backup = false);
 
 	/// Returns the path to save state for the specified disc/elf.
@@ -179,13 +179,13 @@ namespace VMManager
 	bool LoadStateFromSlot(s32 slot, bool backup = false, Error* error = nullptr);
 
 	/// Saves state to the specified filename.
-	void SaveState(const char* filename, bool zip_on_thread, bool backup_old_state,
+	void SaveState(const char* filename, bool save_on_thread, bool backup_old_state,
 		std::function<void(const std::string&)> error_callback, std::string screenshot_filename = {});
 
 	/// Saves state to the specified slot.
-	void SaveStateToSlot(s32 slot, bool zip_on_thread, std::function<void(const std::string&)> error_callback);
+	void SaveStateToSlot(s32 slot, bool save_on_thread, std::function<void(const std::string&)> error_callback);
 
-	/// Waits until all compressing save states have finished saving to disk.
+	/// Waits until all save states have finished writing to disk.
 	void WaitForSaveStateFlush();
 
 	/// Removes all save states for the specified serial and crc. Returns the number of files deleted.
@@ -239,7 +239,7 @@ namespace VMManager
 	bool IsGSDumpFileName(const std::string_view path);
 
 	/// Returns true if the specified path is a save state.
-	bool IsSaveStateFileName(const std::string_view path);
+	bool IsSaveStatePath(const std::string_view path);
 
 	/// Returns true if the specified path is a disc image.
 	bool IsDiscFileName(const std::string_view path);
@@ -389,7 +389,7 @@ namespace Host
 	/// Called after a save state is successfully loaded. If the save state was invalid, was_successful will be false.
 	void OnSaveStateLoaded(const std::string_view filename, bool was_successful);
 
-	/// Called when a save state is being created/saved. The compression/write to disk is asynchronous, so this callback
+	/// Called when a save state is being created/saved. The write to disk is asynchronous, so this callback
 	/// just signifies that the save has started, not necessarily completed.
 	void OnSaveStateSaved(const std::string_view filename);
 

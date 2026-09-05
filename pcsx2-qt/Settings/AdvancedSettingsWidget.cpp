@@ -51,15 +51,6 @@ AdvancedSettingsWidget::AdvancedSettingsWidget(SettingsWindow* settings_dialog, 
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.gameFixes, "EmuCore", "EnableGameFixes", true);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.patches, "EmuCore", "EnablePatches", true);
 
-	SettingWidgetBinder::BindWidgetToIntSetting(
-		sif, m_ui.savestateCompressionMethod, "EmuCore", "SavestateCompressionType", static_cast<int>(SavestateCompressionMethod::Zstandard));
-
-	SettingWidgetBinder::BindWidgetToIntSetting(
-		sif, m_ui.savestateCompressionLevel, "EmuCore", "SavestateCompressionRatio", static_cast<int>(SavestateCompressionLevel::Medium));
-
-	connect(m_ui.savestateCompressionMethod, &QComboBox::currentIndexChanged, this,
-		&AdvancedSettingsWidget::onSavestateCompressionTypeChanged);
-
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.backupSaveStates, "EmuCore", "BackupSavestate", true);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.saveStateOnShutdown, "EmuCore", "SaveStateOnShutdown", false);
 
@@ -135,12 +126,6 @@ AdvancedSettingsWidget::AdvancedSettingsWidget(SettingsWindow* settings_dialog, 
 	dialog()->registerWidgetHelp(m_ui.patches, tr("Enable Compatibility Patches"), tr("Checked"),
 		tr("Automatically loads and applies compatibility patches to known problematic games."));
 
-	dialog()->registerWidgetHelp(m_ui.savestateCompressionMethod, tr("Savestate Compression Method"), tr("Zstandard"),
-		tr("Determines the algorithm to be used when compressing savestates."));
-
-	dialog()->registerWidgetHelp(m_ui.savestateCompressionLevel, tr("Savestate Compression Level"), tr("Medium"),
-		tr("Determines the level to be used when compressing savestates."));
-
 	dialog()->registerWidgetHelp(m_ui.saveStateOnShutdown, tr("Save State On Shutdown"), tr("Unchecked"),
 		tr("Automatically saves the emulator state when powering down or exiting. You can then "
 		   "resume directly from where you left off next time."));
@@ -213,13 +198,6 @@ void AdvancedSettingsWidget::setClampingMode(int vunum, int index)
 		"EmuCore/CPU/Recompiler", (vunum >= 0 ? ((vunum == 0) ? "vu0ExtraOverflow" : "vu1ExtraOverflow") : "fpuExtraOverflow"), second);
 	dialog()->setBoolSettingValue(
 		"EmuCore/CPU/Recompiler", (vunum >= 0 ? ((vunum == 0) ? "vu0Overflow" : "vu1Overflow") : "fpuOverflow"), first);
-}
-
-void AdvancedSettingsWidget::onSavestateCompressionTypeChanged()
-{
-	const bool uncompressed = (dialog()->getEffectiveIntValue("EmuCore", "SavestateCompressionType", static_cast<int>(SavestateCompressionMethod::Zstandard)) ==
-							   static_cast<int>(SavestateCompressionMethod::Uncompressed));
-	m_ui.savestateCompressionLevel->setDisabled(uncompressed);
 }
 
 #include "moc_AdvancedSettingsWidget.cpp"

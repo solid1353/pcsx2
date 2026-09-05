@@ -1674,28 +1674,6 @@ void Pcsx2Config::DebugAnalysisOptions::LoadSave(SettingsWrapper& wrap)
 	}
 }
 
-Pcsx2Config::SavestateOptions::SavestateOptions()
-{
-}
-
-void Pcsx2Config::SavestateOptions::LoadSave(SettingsWrapper& wrap)
-{
-	SettingsWrapSection("EmuCore");
-
-	SettingsWrapIntEnumEx(CompressionType, "SavestateCompressionType");
-	SettingsWrapIntEnumEx(CompressionRatio, "SavestateCompressionRatio");
-}
-
-bool Pcsx2Config::SavestateOptions::operator!=(const SavestateOptions& right) const
-{
-	return !this->operator==(right);
-}
-
-bool Pcsx2Config::SavestateOptions::operator==(const SavestateOptions& right) const
-{
-	return OpEqu(CompressionType) && OpEqu(CompressionRatio);
-};
-
 Pcsx2Config::FilenameOptions::FilenameOptions()
 {
 }
@@ -2016,8 +1994,6 @@ void Pcsx2Config::LoadSaveCore(SettingsWrapper& wrap)
 	DEV9.LoadSave(wrap);
 	Gamefixes.LoadSave(wrap);
 	Profiler.LoadSave(wrap);
-	Savestate.LoadSave(wrap);
-
 	DebuggerAnalysis.LoadSave(wrap);
 	Trace.LoadSave(wrap);
 

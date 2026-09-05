@@ -120,12 +120,12 @@ namespace VMManager
 
 	static std::string GetCurrentSaveStateFileName(s32 slot, bool backup = false);
 	static bool DoLoadState(const char* filename, Error* error = nullptr);
-	static void DoSaveState(const char* filename, s32 slot_for_message, bool zip_on_thread, bool backup_old_state,
+	static void DoSaveState(const char* filename, s32 slot_for_message, bool save_on_thread, bool backup_old_state,
 		std::string screenshot_filename, std::function<void(const std::string&)> error_callback);
-	static void ZipSaveState(std::unique_ptr<ArchiveEntryList> elist,
+	static void WriteSaveState(std::unique_ptr<SaveStateEntryList> elist,
 		std::unique_ptr<SaveStateScreenshotData> screenshot, const char* filename,
 		const char* screenshot_filename, s32 slot_for_message, std::function<void(const std::string&)> error_callback);
-	static void ZipSaveStateOnThread(std::unique_ptr<ArchiveEntryList> elist,
+	static void WriteSaveStateOnThread(std::unique_ptr<SaveStateEntryList> elist,
 		std::unique_ptr<SaveStateScreenshotData> screenshot, std::string filename,
 		std::string screenshot_filename, s32 slot_for_message, std::function<void(const std::string&)> error_callback);
 
@@ -1997,11 +1997,11 @@ std::string VMManager::GetSaveStateFileName(const char* game_serial, u32 game_cr
 	if (std::strlen(game_serial) > 0)
 	{
 		if (slot < 0)
-			filename = fmt::format("{} ({:08X}).resume.p2s", game_serial, game_crc);
+			filename = fmt::format("{} ({:08X}).resume", game_serial, game_crc);
 		else if (backup)
-			filename = fmt::format("{} ({:08X}).{:02d}.p2s.backup", game_serial, game_crc, slot);
+			filename = fmt::format("{} ({:08X}).{:02d}.backup", game_serial, game_crc, slot);
 		else
-			filename = fmt::format("{} ({:08X}).{:02d}.p2s", game_serial, game_crc, slot);
+			filename = fmt::format("{} ({:08X}).{:02d}", game_serial, game_crc, slot);
 
 		filename = Path::Combine(EmuFolders::Savestates, filename);
 	}
@@ -2025,7 +2025,7 @@ std::string VMManager::GetSaveStateFileName(const char* filename, s32 slot, bool
 bool VMManager::HasSaveStateInSlot(const char* game_serial, u32 game_crc, s32 slot)
 {
 	std::string filename(GetSaveStateFileName(game_serial, game_crc, slot));
-	return (!filename.empty() && FileSystem::FileExists(filename.c_str()));
+	return (!filename.empty() && FileSystem::DirectoryExists(filename.c_str()));
 }
 
 std::string VMManager::GetCurrentSaveStateFileName(s32 slot, bool backup)
@@ -2044,7 +2044,7 @@ bool VMManager::DoLoadState(const char* filename, Error* error)
 
 	Host::OnSaveStateLoading(filename);
 
-	if (!SaveState_UnzipFromDisk(filename, error))
+	if (!SaveState_LoadFromDirectory(filename, error))
 		return false;
 
 	Host::OnSaveStateLoaded(filename, true);
@@ -2058,7 +2058,7 @@ bool VMManager::DoLoadState(const char* filename, Error* error)
 	return true;
 }
 
-void VMManager::DoSaveState(const char* filename, s32 slot_for_message, bool zip_on_thread, bool backup_old_state,
+void VMManager::DoSaveState(const char* filename, s32 slot_for_message, bool save_on_thread, bool backup_old_state,
 	std::string screenshot_filename, std::function<void(const std::string&)> error_callback)
 {
 	if (GSDumpReplayer::IsReplayingDump())
@@ -2068,7 +2068,7 @@ void VMManager::DoSaveState(const char* filename, s32 slot_for_message, bool zip
 	}
 
 	Error error;
-	std::unique_ptr<ArchiveEntryList> elist = SaveState_DownloadState(&error);
+	std::unique_ptr<SaveStateEntryList> elist = SaveState_DownloadState(&error);
 	if (!elist)
 	{
 		error_callback(error.GetDescription());
@@ -2077,29 +2077,41 @@ void VMManager::DoSaveState(const char* filename, s32 slot_for_message, bool zip
 
 	std::unique_ptr<SaveStateScreenshotData> screenshot = SaveState_SaveScreenshot();
 
-	if (FileSystem::FileExists(filename) && backup_old_state)
+	if (FileSystem::DirectoryExists(filename))
 	{
-		const std::string backup_filename(fmt::format("{}.backup", filename));
-		Console.WriteLn(fmt::format("Creating save state backup {}...", backup_filename));
-		if (!FileSystem::RenamePath(filename, backup_filename.c_str()))
+		if (backup_old_state)
+		{
+			const std::string backup_filename(fmt::format("{}.backup", filename));
+			Console.WriteLn(fmt::format("Creating save state backup {}...", backup_filename));
+			if ((FileSystem::DirectoryExists(backup_filename.c_str()) &&
+					!FileSystem::RecursiveDeleteDirectory(backup_filename.c_str())) ||
+				!FileSystem::RenamePath(filename, backup_filename.c_str()))
+			{
+				error_callback(fmt::format(
+					TRANSLATE_FS("VMManager", "Cannot back up old save state '{}'."),
+					Path::GetFileName(filename)));
+				return;
+			}
+		}
+		else if (!FileSystem::RecursiveDeleteDirectory(filename))
 		{
 			error_callback(fmt::format(
-				TRANSLATE_FS("VMManager", "Cannot back up old save state '{}'."),
+				TRANSLATE_FS("VMManager", "Cannot replace old save state '{}'."),
 				Path::GetFileName(filename)));
 			return;
 		}
 	}
 
-	if (zip_on_thread)
+	if (save_on_thread)
 	{
 		// lock order here is important; the thread could exit before we resume here.
 		std::unique_lock lock(s_save_state_threads_mutex);
-		s_save_state_threads.emplace_back(&VMManager::ZipSaveStateOnThread, std::move(elist), std::move(screenshot),
+		s_save_state_threads.emplace_back(&VMManager::WriteSaveStateOnThread, std::move(elist), std::move(screenshot),
 			std::string(filename), std::move(screenshot_filename), slot_for_message, std::move(error_callback));
 	}
 	else
 	{
-		ZipSaveState(std::move(elist), std::move(screenshot), filename,
+		WriteSaveState(std::move(elist), std::move(screenshot), filename,
 			screenshot_filename.empty() ? nullptr : screenshot_filename.c_str(), slot_for_message, std::move(error_callback));
 	}
 
@@ -2108,14 +2120,14 @@ void VMManager::DoSaveState(const char* filename, s32 slot_for_message, bool zip
 	return;
 }
 
-void VMManager::ZipSaveState(std::unique_ptr<ArchiveEntryList> elist,
+void VMManager::WriteSaveState(std::unique_ptr<SaveStateEntryList> elist,
 	std::unique_ptr<SaveStateScreenshotData> screenshot, const char* filename,
 	const char* screenshot_filename, s32 slot_for_message, std::function<void(const std::string&)> error_callback)
 {
 	Common::Timer timer;
 
 	Error error;
-	if (!SaveState_ZipToDisk(std::move(elist), std::move(screenshot), filename, screenshot_filename, &error))
+	if (!SaveState_SaveToDirectory(std::move(elist), std::move(screenshot), filename, screenshot_filename, &error))
 	{
 		error_callback(error.GetDescription());
 		return;
@@ -2128,14 +2140,14 @@ void VMManager::ZipSaveState(std::unique_ptr<ArchiveEntryList> elist,
 			Host::OSD_QUICK_DURATION);
 	}
 
-	DevCon.WriteLn("Zipping save state to '%s' took %.2f ms", filename, timer.GetTimeMilliseconds());
+	DevCon.WriteLn("Writing save state to '%s' took %.2f ms", filename, timer.GetTimeMilliseconds());
 }
 
-void VMManager::ZipSaveStateOnThread(std::unique_ptr<ArchiveEntryList> elist,
+void VMManager::WriteSaveStateOnThread(std::unique_ptr<SaveStateEntryList> elist,
 	std::unique_ptr<SaveStateScreenshotData> screenshot, std::string filename,
 	std::string screenshot_filename, s32 slot_for_message, std::function<void(const std::string&)> error_callback)
 {
-	ZipSaveState(std::move(elist), std::move(screenshot), filename.c_str(),
+	WriteSaveState(std::move(elist), std::move(screenshot), filename.c_str(),
 		screenshot_filename.empty() ? nullptr : screenshot_filename.c_str(), slot_for_message, std::move(error_callback));
 
 	// remove ourselves from the thread list. if we're joining, we might not be in there.
@@ -2175,13 +2187,13 @@ u32 VMManager::DeleteSaveStates(const char* game_serial, u32 game_crc, bool also
 	for (s32 i = -1; i <= NUM_SAVE_STATE_SLOTS; i++)
 	{
 		std::string filename(GetSaveStateFileName(game_serial, game_crc, i));
-		if (FileSystem::FileExists(filename.c_str()) && FileSystem::DeleteFilePath(filename.c_str()))
+		if (FileSystem::DirectoryExists(filename.c_str()) && FileSystem::RecursiveDeleteDirectory(filename.c_str()))
 			deleted++;
 
 		if (also_backups)
 		{
 			filename += ".backup";
-			if (FileSystem::FileExists(filename.c_str()) && FileSystem::DeleteFilePath(filename.c_str()))
+			if (FileSystem::DirectoryExists(filename.c_str()) && FileSystem::RecursiveDeleteDirectory(filename.c_str()))
 				deleted++;
 		}
 	}
@@ -2218,7 +2230,7 @@ bool VMManager::LoadState(const char* filename, Error* error)
 bool VMManager::LoadStateFromSlot(s32 slot, bool backup, Error* error)
 {
 	const std::string filename = GetCurrentSaveStateFileName(slot, backup);
-	if (filename.empty() || !FileSystem::FileExists(filename.c_str()))
+	if (filename.empty() || !FileSystem::DirectoryExists(filename.c_str()))
 	{
 		Error::SetString(error, TRANSLATE_STR("VMManager", "The save slot is empty."));
 		return false;
@@ -2259,7 +2271,7 @@ bool VMManager::LoadStateFromSlot(s32 slot, bool backup, Error* error)
 }
 
 void VMManager::SaveState(
-	const char* filename, bool zip_on_thread, bool backup_old_state,
+	const char* filename, bool save_on_thread, bool backup_old_state,
 	std::function<void(const std::string&)> error_callback, std::string screenshot_filename)
 {
 	if (MemcardBusy::IsBusy())
@@ -2276,11 +2288,11 @@ void VMManager::SaveState(
 		return;
 	}
 
-	DoSaveState(filename, -1, zip_on_thread, backup_old_state,
+	DoSaveState(filename, -1, save_on_thread, backup_old_state,
 		std::move(screenshot_filename), std::move(error_callback));
 }
 
-void VMManager::SaveStateToSlot(s32 slot, bool zip_on_thread, std::function<void(const std::string&)> error_callback)
+void VMManager::SaveStateToSlot(s32 slot, bool save_on_thread, std::function<void(const std::string&)> error_callback)
 {
 	const std::string filename(GetCurrentSaveStateFileName(slot));
 	if (filename.empty())
@@ -2306,7 +2318,7 @@ void VMManager::SaveStateToSlot(s32 slot, bool zip_on_thread, std::function<void
 	};
 
 	return DoSaveState(
-		filename.c_str(), slot, zip_on_thread, EmuConfig.BackupSavestate, {}, std::move(callback));
+		filename.c_str(), slot, save_on_thread, EmuConfig.BackupSavestate, {}, std::move(callback));
 }
 
 LimiterModeType VMManager::GetLimiterMode()
@@ -2586,9 +2598,11 @@ bool VMManager::IsGSDumpFileName(const std::string_view path)
 			StringUtil::EndsWithNoCase(path, ".gs.zst"));
 }
 
-bool VMManager::IsSaveStateFileName(const std::string_view path)
+bool VMManager::IsSaveStatePath(const std::string_view path)
 {
-	return StringUtil::EndsWithNoCase(path, ".p2s");
+	const std::string directory(path);
+	return FileSystem::DirectoryExists(directory.c_str()) &&
+	       FileSystem::FileExists(Path::Combine(directory, "PCSX2 Savestate Version.id").c_str());
 }
 
 bool VMManager::IsDiscFileName(const std::string_view path)

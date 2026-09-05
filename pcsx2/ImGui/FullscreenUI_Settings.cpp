@@ -5657,19 +5657,6 @@ void FullscreenUI::DrawAdvancedSettingsPage()
 			bsi, FSUI_ICONSTR(ICON_FA_COMPACT_DISC, "CDVD Verbose Reads"), FSUI_CSTR("Logs disc reads from games."), "EmuCore", "CdvdVerboseReads", false);
 	}
 
-	static constexpr const char* s_savestate_compression_type[] = {
-		FSUI_NSTR("Uncompressed"),
-		FSUI_NSTR("Deflate"),
-		FSUI_NSTR("Zstandard"),
-	};
-
-	static constexpr const char* s_savestate_compression_ratio[] = {
-		FSUI_NSTR("Low (Fast)"),
-		FSUI_NSTR("Medium (Recommended)"),
-		FSUI_NSTR("High"),
-		FSUI_NSTR("Very High (Slow, Not Recommended)"),
-	};
-
 	if (show_advanced_settings)
 	{
 		MenuHeading(FSUI_CSTR("Emotion Engine"));
@@ -5741,12 +5728,6 @@ void FullscreenUI::DrawAdvancedSettingsPage()
 		DrawToggleSetting(bsi, FSUI_ICONSTR(ICON_FA_BANDAGE, "Enable Compatibility Patches"),
 			FSUI_CSTR("Automatically loads and applies compatibility patches to known problematic games."), "EmuCore", "EnablePatches",
 			true);
-
-		MenuHeading(FSUI_CSTR("Save State Management"));
-		DrawIntListSetting(bsi, FSUI_ICONSTR(ICON_FA_BOX_OPEN, "Compression Method"), FSUI_CSTR("Sets the compression algorithm for savestate."), "EmuCore",
-			"SavestateCompressionType", static_cast<int>(SavestateCompressionMethod::Zstandard), s_savestate_compression_type, std::size(s_savestate_compression_type), true);
-		DrawIntListSetting(bsi, FSUI_ICONSTR(ICON_FA_COMPRESS, "Compression Level"), FSUI_CSTR("Sets the compression level for savestate."), "EmuCore",
-			"SavestateCompressionRatio", static_cast<int>(SavestateCompressionLevel::Medium), s_savestate_compression_ratio, std::size(s_savestate_compression_ratio), true);
 
 		MenuHeading(FSUI_CSTR("Graphics"));
 		DrawToggleSetting(bsi, FSUI_ICONSTR(ICON_FA_BUG, "Use Debug Device"), FSUI_CSTR("Enables API-level validation of graphics commands."), "EmuCore/GS",
@@ -6307,9 +6288,6 @@ TRANSLATE_NOOP("FullscreenUI", "Performs just-in-time binary translation of 32-b
 TRANSLATE_NOOP("FullscreenUI", "Compatibility");
 TRANSLATE_NOOP("FullscreenUI", "Automatically loads and applies fixes to known problematic games on game start.");
 TRANSLATE_NOOP("FullscreenUI", "Automatically loads and applies compatibility patches to known problematic games.");
-TRANSLATE_NOOP("FullscreenUI", "Save State Management");
-TRANSLATE_NOOP("FullscreenUI", "Sets the compression algorithm for savestate.");
-TRANSLATE_NOOP("FullscreenUI", "Sets the compression level for savestate.");
 TRANSLATE_NOOP("FullscreenUI", "Graphics");
 TRANSLATE_NOOP("FullscreenUI", "Enables API-level validation of graphics commands.");
 TRANSLATE_NOOP("FullscreenUI", "Forces SW blending and disables several optimizations.");

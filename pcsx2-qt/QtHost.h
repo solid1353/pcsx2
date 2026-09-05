@@ -152,7 +152,7 @@ Q_SIGNALS:
 	/// Called after a save state is successfully loaded. If the save state was invalid, was_successful will be false.
 	void onSaveStateLoaded(const QString& path, bool was_successful);
 
-	/// Called when a save state is being created/saved. The compression/write to disk is asynchronous, so this callback
+	/// Called when a save state is being created/saved. The write to disk is asynchronous, so this callback
 	/// just signifies that the save has started, not necessarily completed.
 	void onSaveStateSaved(const QString& path);
 
