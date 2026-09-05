@@ -405,8 +405,9 @@ bool GSDevice::AcquireWindow(bool recreate_window)
 
 bool GSDevice::ShouldSkipPresentingFrame()
 {
-	// Only needed with FIFO.
-	if (!m_allow_present_throttle || m_vsync_mode != GSVSyncMode::FIFO)
+	// Present can block on the host refresh rate even with vsync disabled, depending on the
+	// active window-composition path. Skip surplus presents so they cannot throttle emulation.
+	if (!m_allow_present_throttle)
 		return false;
 
 	const float throttle_rate = (m_window_info.surface_refresh_rate > 0.0f) ? m_window_info.surface_refresh_rate : 60.0f;
