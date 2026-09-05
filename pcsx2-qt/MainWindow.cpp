@@ -859,6 +859,7 @@ void MainWindow::connectSignals()
 	connect(m_ui.actionToolbarHotkeySettings, &QAction::triggered,
 		[this]() { doControllerSettings(ControllerSettingsWindow::Category::HotkeySettings); });
 	connect(m_ui.actionToolbarScreenshot, &QAction::triggered, this, &MainWindow::onScreenshotActionTriggered);
+	connect(m_ui.actionToolbarRecenter, &QAction::triggered, this, &MainWindow::centerDisplayWindow);
 	connect(m_ui.actionExit, &QAction::triggered, this, &MainWindow::close);
 	connect(m_ui.actionScreenshot, &QAction::triggered, this, &MainWindow::onScreenshotActionTriggered);
 	connect(m_ui.menuLoadState, &QMenu::aboutToShow, this, &MainWindow::onLoadStateMenuAboutToShow);
@@ -1548,6 +1549,7 @@ void MainWindow::updateDisplayRelatedActions(bool has_surface, bool render_to_ma
 	m_ui.menuWindowSize->setEnabled(has_surface && !fullscreen);
 	m_ui.actionFullscreen->setEnabled(has_surface);
 	m_ui.actionToolbarFullscreen->setEnabled(has_surface);
+	m_ui.actionToolbarRecenter->setEnabled(has_surface && !fullscreen);
 
 	{
 		QSignalBlocker blocker(m_ui.actionFullscreen);
