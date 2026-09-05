@@ -105,6 +105,7 @@ public Q_SLOTS:
 	void reloadInputDevices();
 	void closeInputSources();
 	void requestDisplaySize(float scale);
+	void requestCenteredDisplaySize();
 	void enumerateInputDevices();
 	void enumerateVibrationMotors();
 	void runOnCPUThread(const std::function<void()>& func);
@@ -116,7 +117,7 @@ Q_SIGNALS:
 	void statusMessage(const QString& message);
 
 	std::optional<WindowInfo> onAcquireRenderWindowRequested(bool recreate_window, bool fullscreen, bool render_to_main, bool surfaceless);
-	void onResizeRenderWindowRequested(qint32 width, qint32 height);
+	void onResizeRenderWindowRequested(qint32 width, qint32 height, bool force_center);
 	void onReleaseRenderWindowRequested();
 	void onMouseModeRequested(bool relative_mode, bool hide_cursor);
 	void onMouseLockRequested(bool state);

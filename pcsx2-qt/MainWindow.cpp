@@ -859,7 +859,7 @@ void MainWindow::connectSignals()
 	connect(m_ui.actionToolbarHotkeySettings, &QAction::triggered,
 		[this]() { doControllerSettings(ControllerSettingsWindow::Category::HotkeySettings); });
 	connect(m_ui.actionToolbarScreenshot, &QAction::triggered, this, &MainWindow::onScreenshotActionTriggered);
-	connect(m_ui.actionToolbarRecenter, &QAction::triggered, []() { g_emu_thread->requestDisplaySize(0.0f); });
+	connect(m_ui.actionToolbarRecenter, &QAction::triggered, []() { g_emu_thread->requestCenteredDisplaySize(); });
 	connect(m_ui.actionExit, &QAction::triggered, this, &MainWindow::close);
 	connect(m_ui.actionScreenshot, &QAction::triggered, this, &MainWindow::onScreenshotActionTriggered);
 	connect(m_ui.menuLoadState, &QMenu::aboutToShow, this, &MainWindow::onLoadStateMenuAboutToShow);
@@ -3397,12 +3397,12 @@ void MainWindow::centerDisplayWindow()
 	}
 }
 
-void MainWindow::displayResizeRequested(qint32 width, qint32 height)
+void MainWindow::displayResizeRequested(qint32 width, qint32 height, bool force_center)
 {
 	if (!m_display_surface)
 		return;
 
-	const bool center_window = QtHost::ShouldCenterDisplayWindow();
+	const bool center_window = force_center || QtHost::ShouldCenterDisplayWindow();
 
 	width = std::max(width, 1);
 	height = std::max(height, 1);

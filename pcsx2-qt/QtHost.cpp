@@ -101,6 +101,7 @@ static bool s_start_big_picture_mode = false;
 static bool s_start_fullscreen = false;
 static bool s_center_display_window = false;
 static float s_center_display_window_aspect_ratio = 0.0f;
+static constexpr s32 CENTERED_DISPLAY_ASPECT_RATIO_HEIGHT = 10000;
 static bool s_test_config_and_exit = false;
 static bool s_run_setup_wizard = false;
 static bool s_cleanup_after_update = false;
@@ -838,6 +839,26 @@ void EmuThread::requestDisplaySize(float scale)
 	VMManager::RequestDisplaySize(scale);
 }
 
+void EmuThread::requestCenteredDisplaySize()
+{
+	if (!isOnEmuThread())
+	{
+		QMetaObject::invokeMethod(this, &EmuThread::requestCenteredDisplaySize, Qt::QueuedConnection);
+		return;
+	}
+
+	if (!VMManager::HasValidVM())
+		return;
+
+	const float present_aspect_ratio = GSGetPresentAspectRatio();
+	if (present_aspect_ratio <= 0.0f)
+		return;
+
+	onResizeRenderWindowRequested(
+		static_cast<s32>(std::lround(present_aspect_ratio * CENTERED_DISPLAY_ASPECT_RATIO_HEIGHT)),
+		CENTERED_DISPLAY_ASPECT_RATIO_HEIGHT, true);
+}
+
 void EmuThread::enumerateInputDevices()
 {
 	if (!isOnEmuThread())
@@ -1023,7 +1044,7 @@ void Host::BeginPresentFrame()
 
 void Host::RequestResizeHostDisplay(s32 width, s32 height)
 {
-	g_emu_thread->onResizeRenderWindowRequested(width, height);
+	g_emu_thread->onResizeRenderWindowRequested(width, height, false);
 }
 
 void Host::OnVMStarting()
@@ -1127,10 +1148,10 @@ void EmuThread::updatePerformanceMetrics(bool force)
 	if (s_center_display_window && present_aspect_ratio > 0.0f &&
 		std::abs(present_aspect_ratio - s_center_display_window_aspect_ratio) > 0.0005f)
 	{
-		static constexpr s32 ASPECT_RATIO_HEIGHT = 10000;
 		s_center_display_window_aspect_ratio = present_aspect_ratio;
 		Host::RequestResizeHostDisplay(
-			static_cast<s32>(std::lround(present_aspect_ratio * ASPECT_RATIO_HEIGHT)), ASPECT_RATIO_HEIGHT);
+			static_cast<s32>(std::lround(present_aspect_ratio * CENTERED_DISPLAY_ASPECT_RATIO_HEIGHT)),
+			CENTERED_DISPLAY_ASPECT_RATIO_HEIGHT);
 	}
 
 	if (iwidth != m_last_internal_width || iheight != m_last_internal_height || upscale != m_last_upscale ||
