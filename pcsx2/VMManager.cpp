@@ -2192,6 +2192,28 @@ void VMManager::WaitForSaveStateFlush()
 	}
 }
 
+bool VMManager::DeleteStateFromSlot(s32 slot, Error* error)
+{
+	WaitForSaveStateFlush();
+
+	const std::string filename = GetCurrentSaveStateFileName(slot);
+	if (filename.empty() || !FileSystem::DirectoryExists(filename.c_str()))
+	{
+		Error::SetString(error, TRANSLATE_STR("VMManager", "The save slot is empty."));
+		return false;
+	}
+
+	if (!FileSystem::RecursiveDeleteDirectory(filename.c_str()))
+	{
+		Error::SetString(error, TRANSLATE_STR("VMManager", "Failed to delete the save state directory."));
+		return false;
+	}
+
+	Host::AddIconOSDMessage("DeleteStateFromSlot", ICON_FA_TRASH,
+		fmt::format(TRANSLATE_FS("VMManager", "Deleted state from slot {}."), slot), Host::OSD_QUICK_DURATION);
+	return true;
+}
+
 u32 VMManager::DeleteSaveStates(const char* game_serial, u32 game_crc, bool also_backups /* = true */)
 {
 	WaitForSaveStateFlush();

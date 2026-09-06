@@ -287,6 +287,11 @@ DEFINE_HOTKEY("LoadBackupStateFromSlot", TRANSLATE_NOOP("Hotkeys", "Save States"
 		if (!pressed && VMManager::HasValidVM())
 			SaveStateSelectorUI::LoadCurrentBackupSlot();
 	})
+DEFINE_HOTKEY("DeleteStateFromSlot", TRANSLATE_NOOP("Hotkeys", "Save States"),
+	TRANSLATE_NOOP("Hotkeys", "Delete State From Selected Slot"), [](s32 pressed) {
+		if (!pressed && VMManager::HasValidVM())
+			SaveStateSelectorUI::DeleteCurrentSlot();
+	})
 DEFINE_HOTKEY("SaveStateAndSelectNextSlot", TRANSLATE_NOOP("Hotkeys", "Save States"),
 	TRANSLATE_NOOP("Hotkeys", "Save State and Select Next Slot"), [](s32 pressed) {
 		if (!pressed && VMManager::HasValidVM())

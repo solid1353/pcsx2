@@ -1417,6 +1417,7 @@ namespace SaveStateSelectorUI
 	static std::shared_ptr<GSTexture> s_placeholder_texture;
 	static std::string s_load_legend;
 	static std::string s_save_legend;
+	static std::string s_delete_legend;
 	static std::string s_prev_legend;
 	static std::string s_next_legend;
 	static std::string s_close_legend;
@@ -1470,6 +1471,7 @@ void SaveStateSelectorUI::Close()
 	s_open = false;
 	s_load_legend = {};
 	s_save_legend = {};
+	s_delete_legend = {};
 	s_prev_legend = {};
 	s_next_legend = {};
 	s_close_legend = {};
@@ -1532,6 +1534,8 @@ void SaveStateSelectorUI::RefreshHotkeyLegend()
 		TRANSLATE_STR("ImGuiOverlays", "Load"));
 	s_save_legend = format_legend_entry(Host::GetSmallStringSettingValue("Hotkeys", "SaveStateToSlot"),
 		TRANSLATE_STR("ImGuiOverlays", "Save"));
+	s_delete_legend = format_legend_entry(Host::GetSmallStringSettingValue("Hotkeys", "DeleteStateFromSlot"),
+		TRANSLATE_STR("ImGuiOverlays", "Delete"));
 	s_prev_legend = format_legend_entry(Host::GetSmallStringSettingValue("Hotkeys", "PreviousSaveStateSlot"),
 		TRANSLATE_STR("ImGuiOverlays", "Select Previous"));
 	s_next_legend = format_legend_entry(Host::GetSmallStringSettingValue("Hotkeys", "NextSaveStateSlot"),
@@ -1735,6 +1739,8 @@ void SaveStateSelectorUI::Draw()
 				ImGui::TableNextColumn();
 				ImGui::TextUnformatted(s_next_legend.c_str());
 				ImGui::TableNextColumn();
+				ImGui::TextUnformatted(s_delete_legend.c_str());
+				ImGui::TableNextColumn();
 				ImGui::TextUnformatted(s_close_legend.c_str());
 
 				ImGui::EndTable();
@@ -1784,6 +1790,20 @@ void SaveStateSelectorUI::SaveCurrentSlot()
 		VMManager::SaveStateToSlot(slot, true, [slot](const std::string& error) {
 			FullscreenUI::ReportStateSaveError(error, slot);
 		});
+	});
+	Close();
+}
+
+void SaveStateSelectorUI::DeleteCurrentSlot()
+{
+	Host::RunOnCPUThread([slot = GetCurrentSlot()]() {
+		Error error;
+		if (!VMManager::DeleteStateFromSlot(slot, &error))
+		{
+			Host::AddIconOSDMessage("DeleteStateFromSlot", ICON_FA_TRIANGLE_EXCLAMATION,
+				fmt::format(TRANSLATE_FS("ImGuiOverlays", "Failed to delete state from slot {}: {}"),
+					slot, error.GetDescription()), Host::OSD_ERROR_DURATION);
+		}
 	});
 	Close();
 }
