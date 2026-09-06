@@ -1641,7 +1641,7 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 
 		if (!s_current_disc_serial.empty())
 		{
-			const std::time_t cached_played_time = GameList::GetCachedPlayedTimeForSerial(s_current_disc_serial);
+			const std::time_t cached_played_time = GameList::GetCachedPlayedTimeForSerial(s_current_disc_serial, s_current_disc_crc);
 			const std::time_t session_time = static_cast<std::time_t>(VMManager::GetSessionPlayedTime());
 			const std::string played_time_str(GameList::FormatTimespan(cached_played_time + session_time, true));
 			const std::string session_time_str(GameList::FormatTimespan(session_time, true));
@@ -3029,14 +3029,15 @@ void FullscreenUI::HandleGameListOptions(const GameList::Entry* entry)
 		{FSUI_ICONSTR(ICON_FA_COMPACT_DISC, "Full Boot"), false},
 	};
 
-	const time_t entry_played_time = GameList::GetCachedPlayedTimeForSerial(entry->serial);
+	const time_t entry_played_time = GameList::GetCachedPlayedTimeForSerial(entry->serial, entry->crc);
 	if (entry_played_time)
 		options.emplace_back(FSUI_ICONSTR(ICON_FA_STOPWATCH, "Reset Play Time"), false);
 	options.emplace_back(FSUI_ICONSTR(ICON_FA_SQUARE_XMARK, "Close Menu"), false);
 
 	const bool has_resume_state = VMManager::HasSaveStateInSlot(entry->serial.c_str(), entry->crc, -1);
 	OpenChoiceDialog(entry->GetTitle(s_prefer_english_titles).c_str(), false, std::move(options),
-		[has_resume_state, entry_path = entry->path, entry_serial = entry->serial, entry_title = entry->title, entry_played_time]
+		[has_resume_state, entry_path = entry->path, entry_serial = entry->serial, entry_crc = entry->crc,
+			entry_title = entry->title, entry_played_time]
 		(s32 index, const std::string& title, bool checked) {
 			switch (index)
 			{
@@ -3071,9 +3072,9 @@ void FullscreenUI::HandleGameListOptions(const GameList::Entry* entry)
 											entry_title.empty() ? FSUI_STR("empty title") : entry_title,
 											entry_serial.empty() ? FSUI_STR("no serial") : entry_serial,
 											GameList::FormatTimespan(entry_played_time, true)),
-							[entry_serial](bool result) {
+							[entry_serial, entry_crc](bool result) {
 								if (result)
-									GameList::ClearPlayedTimeForSerial(entry_serial);
+									GameList::ClearPlayedTimeForSerial(entry_serial, entry_crc);
 							}, false);
 					}
 					break;

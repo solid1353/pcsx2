@@ -171,6 +171,7 @@ namespace EmuFolders
 	std::string InputRecordings;
 	std::vector<std::string> AdditionalContentFolders;
 	std::vector<std::pair<std::string, std::string>> ContentAliases;
+	std::vector<std::pair<std::string, std::string>> ContentAliasIdentities;
 	std::string Videos;
 
 	static bool ShouldUsePortableMode();
@@ -2319,6 +2320,26 @@ void EmuFolders::LoadContentAliases(SettingsInterface& si)
 		}
 		ContentAliases.push_back(std::move(entry));
 	}
+
+	ContentAliasIdentities.clear();
+	for (std::pair<std::string, std::string> entry : si.GetKeyValueList("ContentAliasIdentity"))
+	{
+		StringUtil::StripWhitespace(&entry.first);
+		StringUtil::StripWhitespace(&entry.second);
+		if (entry.first.empty() || entry.second.empty())
+			continue;
+		if (!IsContentAlias(entry.first))
+		{
+			Console.Warning("Ignoring identity '%s' for unregistered content alias '%s'.", entry.second.c_str(), entry.first.c_str());
+			continue;
+		}
+		if (Path::SanitizeFileName(entry.second) != entry.second)
+		{
+			Console.Warning("Ignoring invalid identity '%s' for content alias '%s'.", entry.second.c_str(), entry.first.c_str());
+			continue;
+		}
+		ContentAliasIdentities.push_back(std::move(entry));
+	}
 }
 
 std::string EmuFolders::GetContentAlias(const std::string_view serial, const u32 crc)
@@ -2341,6 +2362,21 @@ std::string EmuFolders::GetContentAlias(const std::string_view serial, const u32
 			return alias;
 	}
 	return find_alias(serial);
+}
+
+std::string EmuFolders::GetContentIdentitySerial(const std::string_view serial, const u32 crc)
+{
+	const std::string alias = GetContentAlias(serial, crc);
+	if (!alias.empty())
+	{
+		for (auto it = ContentAliasIdentities.rbegin(); it != ContentAliasIdentities.rend(); ++it)
+		{
+			if (StringUtil::Strcasecmp(it->first.c_str(), alias.c_str()) == 0)
+				return it->second;
+		}
+	}
+
+	return std::string(serial);
 }
 
 bool EmuFolders::IsContentAlias(const std::string_view alias)

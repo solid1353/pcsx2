@@ -2221,7 +2221,7 @@ void MainWindow::onGameListEntryContextMenuRequested(const QPoint& point)
 		connect(menu.addAction(tr("Exclude From List")), &QAction::triggered,
 			[this, entry]() { getSettingsWindow()->getGameListSettingsWidget()->addExcludedPath(entry->path); });
 
-		const time_t entry_played_time = GameList::GetCachedPlayedTimeForSerial(entry->serial);
+		const time_t entry_played_time = GameList::GetCachedPlayedTimeForSerial(entry->serial, entry->crc);
 		// Best two options given zero play time are to grey this out or to not show it at all.
 		if (entry_played_time)
 			connect(menu.addAction(tr("Reset Play Time")), &QAction::triggered, [this, entry, entry_played_time]() { clearGameListEntryPlayTime(*entry, entry_played_time); });
@@ -3905,7 +3905,7 @@ void MainWindow::clearGameListEntryPlayTime(const GameList::Entry& entry, const 
 					QString::fromStdString(GameList::FormatTimespan(entry_played_time, true))),
 			(QMessageBox::Yes | QMessageBox::No), QMessageBox::No) == QMessageBox::Yes)
 	{
-		GameList::ClearPlayedTimeForSerial(entry.serial);
+		GameList::ClearPlayedTimeForSerial(entry.serial, entry.crc);
 		m_game_list_widget->refresh(false, false);
 	}
 }

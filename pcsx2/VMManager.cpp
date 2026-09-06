@@ -138,7 +138,7 @@ namespace VMManager
 	static void UpdateInhibitScreensaver(bool allow);
 	static void AccumulateSessionPlaytime();
 	static void ResetResumeTimestamp();
-	static void SaveSessionTime(const std::string& prev_serial);
+	static void SaveSessionTime(const std::string& prev_serial, u32 prev_crc);
 	static void ReloadPINE();
 
 	static float GetTargetSpeedForLimiterMode(LimiterModeType mode);
@@ -959,7 +959,8 @@ std::string VMManager::GetDebuggerSettingsFilePath(const std::string_view game_s
 	if (!game_serial.empty() && game_crc != 0)
 	{
 		auto lock = Host::GetSettingsLock();
-		return Path::Combine(EmuFolders::DebuggerSettings, fmt::format("{}_{:08X}.json", game_serial, game_crc));
+		return Path::Combine(EmuFolders::DebuggerSettings,
+			fmt::format("{}_{:08X}.json", EmuFolders::GetContentIdentitySerial(game_serial, game_crc), game_crc));
 	}
 	return path;
 }
@@ -976,6 +977,7 @@ void VMManager::Internal::UpdateEmuFolders()
 	const std::string old_game_settings_directory(EmuFolders::GameSettings);
 	const std::vector<std::string> old_additional_content_folders(EmuFolders::AdditionalContentFolders);
 	const std::vector<std::pair<std::string, std::string>> old_content_aliases(EmuFolders::ContentAliases);
+	const std::vector<std::pair<std::string, std::string>> old_content_alias_identities(EmuFolders::ContentAliasIdentities);
 	const std::string old_memcards_directory(EmuFolders::MemoryCards);
 	const std::string old_textures_directory(EmuFolders::Textures);
 	const std::string old_videos_directory(EmuFolders::Videos);
@@ -989,7 +991,8 @@ void VMManager::Internal::UpdateEmuFolders()
 	{
 		const bool additional_content_folders_changed =
 			EmuFolders::AdditionalContentFolders != old_additional_content_folders;
-		const bool content_aliases_changed = EmuFolders::ContentAliases != old_content_aliases;
+		const bool content_aliases_changed = EmuFolders::ContentAliases != old_content_aliases ||
+			EmuFolders::ContentAliasIdentities != old_content_alias_identities;
 		const bool game_settings_folders_changed =
 			EmuFolders::GameSettings != old_game_settings_directory || additional_content_folders_changed || content_aliases_changed;
 		if (game_settings_folders_changed)
@@ -1207,7 +1210,7 @@ void VMManager::UpdateDiscDetails(bool booting)
 			return;
 		}
 
-		SaveSessionTime(old_serial);
+		SaveSessionTime(old_serial, old_crc);
 
 		s_title_en_search.clear();
 		s_title_en_replace.clear();
@@ -1811,7 +1814,7 @@ void VMManager::Shutdown(bool save_resume_state)
 	if (g_InputRecording.isActive())
 		g_InputRecording.stop();
 
-	SaveSessionTime(s_disc_serial);
+	SaveSessionTime(s_disc_serial, s_disc_crc);
 	s_elf_override = {};
 	ClearELFInfo();
 	CDVDsys_ClearFiles();
@@ -1996,12 +1999,13 @@ std::string VMManager::GetSaveStateFileName(const char* game_serial, u32 game_cr
 	std::string filename;
 	if (std::strlen(game_serial) > 0)
 	{
+		const std::string identity_serial = EmuFolders::GetContentIdentitySerial(game_serial, game_crc);
 		if (slot < 0)
-			filename = fmt::format("{} ({:08X}).resume", game_serial, game_crc);
+			filename = fmt::format("{} ({:08X}).resume", identity_serial, game_crc);
 		else if (backup)
-			filename = fmt::format("{} ({:08X}).{:02d}.backup", game_serial, game_crc, slot);
+			filename = fmt::format("{} ({:08X}).{:02d}.backup", identity_serial, game_crc, slot);
 		else
-			filename = fmt::format("{} ({:08X}).{:02d}", game_serial, game_crc, slot);
+			filename = fmt::format("{} ({:08X}).{:02d}", identity_serial, game_crc, slot);
 
 		filename = Path::Combine(EmuFolders::Savestates, filename);
 	}
@@ -3650,7 +3654,7 @@ void VMManager::UpdateInhibitScreensaver(bool inhibit)
 		Console.Warning("Failed to inhibit screen saver.");
 }
 
-void VMManager::SaveSessionTime(const std::string& prev_serial)
+void VMManager::SaveSessionTime(const std::string& prev_serial, const u32 prev_crc)
 {
 	// Don't save time when running dumps, just messes up your list.
 	if (GSDumpReplayer::IsReplayingDump())
@@ -3662,7 +3666,7 @@ void VMManager::SaveSessionTime(const std::string& prev_serial)
 		const std::time_t etime =
 			static_cast<std::time_t>(std::round(Common::Timer::ConvertValueToSeconds(std::exchange(s_session_accumulated_playtime, 0))));
 		const std::time_t wtime = std::time(nullptr);
-		GameList::AddPlayedTimeForSerial(prev_serial, wtime, etime);
+		GameList::AddPlayedTimeForSerial(prev_serial, prev_crc, wtime, etime);
 	}
 }
 

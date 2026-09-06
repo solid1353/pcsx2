@@ -136,11 +136,11 @@ namespace GameList
 	bool GetSerialAndCRCForFilename(const char* filename, std::string* serial, u32* crc);
 
 	/// Add played time for the specified serial.
-	void AddPlayedTimeForSerial(const std::string& serial, std::time_t last_time, std::time_t add_time);
-	void ClearPlayedTimeForSerial(const std::string& serial);
+	void AddPlayedTimeForSerial(const std::string& serial, u32 crc, std::time_t last_time, std::time_t add_time);
+	void ClearPlayedTimeForSerial(const std::string& serial, u32 crc);
 
 	/// Returns the total time played for a game. Requires the game to be scanned in the list.
-	std::time_t GetCachedPlayedTimeForSerial(const std::string& serial);
+	std::time_t GetCachedPlayedTimeForSerial(const std::string& serial, u32 crc);
 
 	/// Formats a timestamp to something human readable (e.g. Today, Yesterday, 10/11/12).
 	std::string FormatTimestamp(std::time_t timestamp);

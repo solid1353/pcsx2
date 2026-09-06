@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "CDVD/CDVD.h"
+#include "Config.h"
 #include "Elfheader.h"
 #include "GameList.h"
 #include "Host.h"
@@ -741,7 +742,7 @@ bool GameList::AddFileFromCache(const std::string& path, std::time_t timestamp, 
 	if (entry.type == EntryType::Invalid)
 		return true;
 
-	auto iter = played_time_map.find(entry.serial);
+	auto iter = played_time_map.find(EmuFolders::GetContentIdentitySerial(entry.serial, entry.crc));
 	if (iter != played_time_map.end())
 	{
 		entry.last_played_time = iter->second.last_played_time;
@@ -779,7 +780,7 @@ bool GameList::ScanFile(std::string path, std::time_t timestamp, std::unique_loc
 		return true;
 	}
 
-	const auto iter = played_time_map.find(entry.serial);
+	const auto iter = played_time_map.find(EmuFolders::GetContentIdentitySerial(entry.serial, entry.crc));
 	if (iter != played_time_map.end())
 	{
 		entry.last_played_time = iter->second.last_played_time;
@@ -1129,19 +1130,20 @@ GameList::PlayedTimeEntry GameList::UpdatePlayedTimeFile(
 	return new_entry;
 }
 
-void GameList::AddPlayedTimeForSerial(const std::string& serial, std::time_t last_time, std::time_t add_time)
+void GameList::AddPlayedTimeForSerial(const std::string& serial, u32 crc, std::time_t last_time, std::time_t add_time)
 {
 	if (serial.empty())
 		return;
 
-	const PlayedTimeEntry pt(UpdatePlayedTimeFile(GetPlayedTimeFile(), serial, last_time, add_time));
-	Console.WriteLn("Add %u seconds play time to %s -> now %u", static_cast<unsigned>(add_time), serial.c_str(),
+	const std::string identity_serial = EmuFolders::GetContentIdentitySerial(serial, crc);
+	const PlayedTimeEntry pt(UpdatePlayedTimeFile(GetPlayedTimeFile(), identity_serial, last_time, add_time));
+	Console.WriteLn("Add %u seconds play time to %s -> now %u", static_cast<unsigned>(add_time), identity_serial.c_str(),
 		static_cast<unsigned>(pt.total_played_time));
 
 	std::unique_lock<std::recursive_mutex> lock(s_mutex);
 	for (GameList::Entry& entry : s_entries)
 	{
-		if (entry.serial != serial)
+		if (EmuFolders::GetContentIdentitySerial(entry.serial, entry.crc) != identity_serial)
 			continue;
 
 		entry.last_played_time = pt.last_played_time;
@@ -1149,17 +1151,18 @@ void GameList::AddPlayedTimeForSerial(const std::string& serial, std::time_t las
 	}
 }
 
-void GameList::ClearPlayedTimeForSerial(const std::string& serial)
+void GameList::ClearPlayedTimeForSerial(const std::string& serial, u32 crc)
 {
 	if (serial.empty())
 		return;
 
-	UpdatePlayedTimeFile(GetPlayedTimeFile(), serial, 0, 0);
+	const std::string identity_serial = EmuFolders::GetContentIdentitySerial(serial, crc);
+	UpdatePlayedTimeFile(GetPlayedTimeFile(), identity_serial, 0, 0);
 
 	std::unique_lock<std::recursive_mutex> lock(s_mutex);
 	for (GameList::Entry& entry : s_entries)
 	{
-		if (entry.serial != serial)
+		if (EmuFolders::GetContentIdentitySerial(entry.serial, entry.crc) != identity_serial)
 			continue;
 
 		entry.last_played_time = 0;
@@ -1168,15 +1171,16 @@ void GameList::ClearPlayedTimeForSerial(const std::string& serial)
 }
 
 
-std::time_t GameList::GetCachedPlayedTimeForSerial(const std::string& serial)
+std::time_t GameList::GetCachedPlayedTimeForSerial(const std::string& serial, u32 crc)
 {
 	if (serial.empty())
 		return 0;
 
+	const std::string identity_serial = EmuFolders::GetContentIdentitySerial(serial, crc);
 	std::unique_lock<std::recursive_mutex> lock(s_mutex);
 	for (GameList::Entry& entry : s_entries)
 	{
-		if (entry.serial == serial)
+		if (EmuFolders::GetContentIdentitySerial(entry.serial, entry.crc) == identity_serial)
 			return entry.total_played_time;
 	}
 
