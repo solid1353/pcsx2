@@ -13,6 +13,7 @@
 #include <array>
 #include <memory>
 
+class QKeyEvent;
 class QWheelEvent;
 
 class INISettingsInterface;
@@ -113,6 +114,7 @@ private Q_SLOTS:
 
 protected:
 	void closeEvent(QCloseEvent*) override;
+	void keyPressEvent(QKeyEvent* event) override;
 	void wheelEvent(QWheelEvent* event) override;
 
 private:

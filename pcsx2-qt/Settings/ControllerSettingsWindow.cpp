@@ -16,6 +16,7 @@
 #include "common/FileSystem.h"
 
 #include <array>
+#include <QtGui/QKeyEvent>
 #include <QtWidgets/QInputDialog>
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QTextEdit>
@@ -54,6 +55,18 @@ ControllerSettingsWindow::ControllerSettingsWindow()
 }
 
 ControllerSettingsWindow::~ControllerSettingsWindow() = default;
+
+void ControllerSettingsWindow::keyPressEvent(QKeyEvent* event)
+{
+	if (event->key() == Qt::Key_Escape)
+	{
+		event->accept();
+		close();
+		return;
+	}
+
+	QWidget::keyPressEvent(event);
+}
 
 void ControllerSettingsWindow::setCategory(Category category)
 {

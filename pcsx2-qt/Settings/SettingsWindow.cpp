@@ -33,6 +33,7 @@
 #include "common/Path.h"
 #include "common/StringUtil.h"
 
+#include <QtGui/QKeyEvent>
 #include <QtGui/QWheelEvent>
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QScrollBar>
@@ -239,6 +240,18 @@ void SettingsWindow::closeEvent(QCloseEvent*)
 	// we need to clean up ourselves, since we're not modal
 	if (isPerGameSettings())
 		deleteLater();
+}
+
+void SettingsWindow::keyPressEvent(QKeyEvent* event)
+{
+	if (event->key() == Qt::Key_Escape)
+	{
+		event->accept();
+		close();
+		return;
+	}
+
+	QWidget::keyPressEvent(event);
 }
 
 QString SettingsWindow::getCategory() const

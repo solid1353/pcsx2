@@ -15,6 +15,8 @@
 #include <array>
 #include <string>
 
+class QKeyEvent;
+
 class ControllerGlobalSettingsWidget;
 class ControllerBindingWidget;
 class HotkeySettingsWidget;
@@ -87,6 +89,9 @@ private Q_SLOTS:
 	void onVibrationMotorsEnumerated(const QList<InputBindingKey>& motors);
 
 	void createWidgets();
+
+protected:
+	void keyPressEvent(QKeyEvent* event) override;
 
 private:
 	void refreshProfileList();
