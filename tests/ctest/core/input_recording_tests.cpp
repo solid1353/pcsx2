@@ -125,9 +125,9 @@ TEST(InputRecordingCapture, SelectsDirectoriesForEachMode)
 		GetInputRecordingCaptureDirectories("recording.p2m2", capture_root, InputRecordingCaptureMode::Savestates);
 
 	EXPECT_EQ(full.savestates, Path::Combine(capture_root, "sstates"));
-	EXPECT_EQ(full.screenshots, Path::Combine(capture_root, "screenshots"));
+	EXPECT_EQ(full.screenshots, capture_root);
 	EXPECT_TRUE(screenshots.savestates.empty());
-	EXPECT_EQ(screenshots.screenshots, Path::Combine(capture_root, "screenshots"));
+	EXPECT_EQ(screenshots.screenshots, capture_root);
 	EXPECT_EQ(savestates.savestates, Path::Combine(capture_root, "sstates"));
 	EXPECT_TRUE(savestates.screenshots.empty());
 }

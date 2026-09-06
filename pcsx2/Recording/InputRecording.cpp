@@ -148,7 +148,7 @@ InputRecordingCaptureDirectories GetInputRecordingCaptureDirectories(const std::
 		if (capture_savestates)
 			directories.savestates = Path::Combine(capture_directory, "sstates");
 		if (capture_screenshots)
-			directories.screenshots = Path::Combine(capture_directory, "screenshots");
+			directories.screenshots = std::string(capture_directory);
 	}
 	return directories;
 }
@@ -401,7 +401,7 @@ void InputRecording::captureReplayMarker()
 	if (!IsInputRecordingCaptureMarkerSelected(m_capture_marker_ranges, capture_index))
 		return;
 
-	const std::string capture_name = fmt::format("{:04}", capture_index);
+	const std::string capture_name = fmt::format("{:03}", capture_index);
 	const std::string snapshot_path = m_capture_snapshot_directory.empty() ? std::string() :
 	                                                                         Path::Combine(m_capture_snapshot_directory, fmt::format("{}.png", capture_name));
 
