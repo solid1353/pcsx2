@@ -18,6 +18,7 @@
 #include <vector>
 
 class ProgressCallback;
+class INISettingsInterface;
 
 struct VMBootParameters;
 
@@ -69,6 +70,16 @@ namespace GameList
 
 	using CompatibilityRating = GameDatabaseSchema::Compatibility;
 	static constexpr u32 CompatibilityRatingCount = static_cast<u32>(GameDatabaseSchema::Compatibility::Perfect) + 1u;
+
+	struct TitleInfo
+	{
+		std::string title;
+		std::string title_sort;
+		std::string title_en;
+	};
+
+	/// Resolves display titles from the content identity without scanning or consulting the game list cache.
+	TitleInfo ResolveTitle(const std::string& path, const std::string& serial, u32 crc);
 
 	struct Entry
 	{
@@ -160,5 +171,5 @@ namespace GameList
 	void CheckCustomAttributesForPath(const std::string& path, bool& has_custom_title, bool& has_custom_region);
 	void SaveCustomTitleForPath(const std::string& path, const std::string& custom_title);
 	void SaveCustomRegionForPath(const std::string& path, int custom_region);
-	std::string GetCustomTitleForPath(const std::string& path);
+	std::optional<std::string> GetCustomTitleForPath(const std::string& path, const INISettingsInterface* custom_attributes = nullptr);
 } // namespace GameList

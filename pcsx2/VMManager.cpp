@@ -1215,28 +1215,25 @@ void VMManager::UpdateDiscDetails(bool booting)
 
 		s_title_en_search.clear();
 		s_title_en_replace.clear();
-		std::string custom_title = GameList::GetCustomTitleForPath(CDVDsys_GetFile(CDVDsys_GetSourceType()));
 		if (serial_is_valid)
 		{
+			const std::string& disc_path = CDVDsys_GetFile(CDVDsys_GetSourceType());
+			GameList::TitleInfo titles = GameList::ResolveTitle(disc_path, s_disc_serial, s_disc_crc);
+			if (auto custom_title = GameList::GetCustomTitleForPath(disc_path))
+				titles.title = std::move(*custom_title);
+			if (!titles.title_en.empty())
+			{
+				s_title_en_search = titles.title;
+				s_title_en_replace = std::move(titles.title_en);
+			}
+			title = std::move(titles.title);
+
 			if (const GameDatabaseSchema::GameEntry* game = GameDatabase::findGame(s_disc_serial))
 			{
-				if (!game->name_en.empty())
-				{
-					s_title_en_search = game->name;
-					s_title_en_replace = game->name_en;
-				}
-
-				std::string game_title = custom_title.empty() ? game->name : std::move(custom_title);
-
 				// Append the ELF override if we're using it with a disc.
 				if (!s_elf_override.empty())
 				{
-					title = fmt::format(
-						"{} [{}]", game_title, Path::GetFileTitle(s_elf_override));
-				}
-				else
-				{
-					title = std::move(game_title);
+					title = fmt::format("{} [{}]", title, Path::GetFileTitle(s_elf_override));
 				}
 
 				memcardFilters = game->memcardFiltersAsString();
@@ -1246,10 +1243,9 @@ void VMManager::UpdateDiscDetails(bool booting)
 				Console.Warning(fmt::format("Serial '{}' not found in GameDB.", s_disc_serial));
 			}
 		}
-
-		if (title.empty())
+		else if (!s_elf_override.empty())
 		{
-			title = std::move(custom_title);
+			title = GameList::GetCustomTitleForPath(s_elf_override).value_or(std::string(Path::GetFileTitle(s_elf_override)));
 		}
 
 		if (title.empty())

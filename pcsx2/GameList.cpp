@@ -424,36 +424,31 @@ bool GameList::GetIsoListEntry(const std::string& path, GameList::Entry* entry)
 	const GameDatabaseSchema::GameEntry* db_entry = GameDatabase::findGame(entry->serial);
 	if (db_entry)
 	{
-		entry->title = db_entry->name;
-		entry->title_sort = db_entry->name_sort;
-		entry->title_en = db_entry->name_en;
 		entry->compatibility_rating = db_entry->compat;
 		entry->region = ParseDatabaseRegion(db_entry->region);
 	}
 	else
 	{
-		entry->title = Path::GetFileTitle(path);
 		entry->region = Region::Other;
 	}
 
-	const std::string identity_serial = EmuFolders::GetContentIdentitySerial(entry->serial, entry->crc);
-	if (StringUtil::Strcasecmp(identity_serial.c_str(), entry->serial.c_str()) != 0)
-	{
-		if (const GameDatabaseSchema::GameEntry* identity_db_entry = GameDatabase::findGame(identity_serial))
-		{
-			entry->title = identity_db_entry->name;
-			entry->title_sort = identity_db_entry->name_sort;
-			entry->title_en = identity_db_entry->name_en;
-		}
-		else
-		{
-			entry->title = Path::GetFileTitle(path);
-			entry->title_sort.clear();
-			entry->title_en.clear();
-		}
-	}
+	TitleInfo titles = ResolveTitle(path, entry->serial, entry->crc);
+	entry->title = std::move(titles.title);
+	entry->title_sort = std::move(titles.title_sort);
+	entry->title_en = std::move(titles.title_en);
 
 	return true;
+}
+
+GameList::TitleInfo GameList::ResolveTitle(const std::string& path, const std::string& serial, u32 crc)
+{
+	const std::string identity_serial = EmuFolders::GetContentIdentitySerial(serial, crc);
+	if (const GameDatabaseSchema::GameEntry* game = GameDatabase::findGame(identity_serial))
+	{
+		return {game->name, game->name_sort, game->name_en};
+	}
+
+	return {std::string(Path::GetFileTitle(path)), {}, {}};
 }
 
 bool GameList::PopulateEntryFromPath(const std::string& path, GameList::Entry* entry)
@@ -805,7 +800,7 @@ bool GameList::ScanFile(std::string path, std::time_t timestamp, std::unique_loc
 		entry.total_played_time = iter->second.total_played_time;
 	}
 
-	auto custom_title = custom_attributes_ini.GetOptionalStringValue(EncodeIniKey(entry.path).c_str(), "Title");
+	auto custom_title = GetCustomTitleForPath(entry.path, &custom_attributes_ini);
 	if (custom_title)
 	{
 		entry.title = std::move(custom_title.value());
@@ -1541,18 +1536,17 @@ void GameList::SaveCustomRegionForPath(const std::string& path, int custom_regio
 	}
 }
 
-std::string GameList::GetCustomTitleForPath(const std::string& path)
+std::optional<std::string> GameList::GetCustomTitleForPath(const std::string& path, const INISettingsInterface* custom_attributes)
 {
-	std::string ret;
-
-	std::unique_lock lock(s_mutex);
-	const GameList::Entry* entry = GetEntryForPath(EncodeIniKey(path).c_str());
-	if (entry)
+	if (custom_attributes)
 	{
-		ret = entry->title;
+		return custom_attributes->GetOptionalStringValue(EncodeIniKey(path).c_str(), "Title");
 	}
 
-	return ret;
+	INISettingsInterface names(GetCustomPropertiesFile());
+	if (!names.Load())
+		return std::nullopt;
+	return GetCustomTitleForPath(path, &names);
 }
 
 static std::string GameList::EncodeIniKey(const std::string_view& input)
