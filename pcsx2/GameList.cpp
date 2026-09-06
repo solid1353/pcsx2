@@ -38,7 +38,7 @@ namespace GameList
 	enum : u32
 	{
 		GAME_LIST_CACHE_SIGNATURE = 0x45434C47,
-		GAME_LIST_CACHE_VERSION = 34,
+		GAME_LIST_CACHE_VERSION = 35,
 
 
 		PLAYED_TIME_SERIAL_LENGTH = 32,
@@ -421,11 +421,12 @@ bool GameList::GetIsoListEntry(const std::string& path, GameList::Entry* entry)
 	entry->total_size = sd.Size;
 	entry->compatibility_rating = CompatibilityRating::Unknown;
 
-	if (const GameDatabaseSchema::GameEntry* db_entry = GameDatabase::findGame(entry->serial))
+	const GameDatabaseSchema::GameEntry* db_entry = GameDatabase::findGame(entry->serial);
+	if (db_entry)
 	{
-		entry->title = std::move(db_entry->name);
-		entry->title_sort = std::move(db_entry->name_sort);
-		entry->title_en = std::move(db_entry->name_en);
+		entry->title = db_entry->name;
+		entry->title_sort = db_entry->name_sort;
+		entry->title_en = db_entry->name_en;
 		entry->compatibility_rating = db_entry->compat;
 		entry->region = ParseDatabaseRegion(db_entry->region);
 	}
@@ -433,6 +434,23 @@ bool GameList::GetIsoListEntry(const std::string& path, GameList::Entry* entry)
 	{
 		entry->title = Path::GetFileTitle(path);
 		entry->region = Region::Other;
+	}
+
+	const std::string identity_serial = EmuFolders::GetContentIdentitySerial(entry->serial, entry->crc);
+	if (StringUtil::Strcasecmp(identity_serial.c_str(), entry->serial.c_str()) != 0)
+	{
+		if (const GameDatabaseSchema::GameEntry* identity_db_entry = GameDatabase::findGame(identity_serial))
+		{
+			entry->title = identity_db_entry->name;
+			entry->title_sort = identity_db_entry->name_sort;
+			entry->title_en = identity_db_entry->name_en;
+		}
+		else
+		{
+			entry->title = Path::GetFileTitle(path);
+			entry->title_sort.clear();
+			entry->title_en.clear();
+		}
 	}
 
 	return true;
