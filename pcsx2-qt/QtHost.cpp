@@ -266,12 +266,14 @@ void EmuThread::startVM(std::shared_ptr<VMBootParameters> boot_params)
 	if (!boot_params->input_recording.empty())
 		input_recording = EmuFolders::ResolveInputRecordingPath(boot_params->input_recording);
 	const std::string input_recording_capture_directory = boot_params->input_recording_capture_directory;
+	const bool capture_input_recording = boot_params->input_recording_capture_mode.has_value() ||
+		!input_recording_capture_directory.empty() || !boot_params->input_recording_capture_markers.empty();
 	const InputRecordingCaptureMode input_recording_capture_mode =
 		boot_params->input_recording_capture_mode.value_or(InputRecordingCaptureMode::Full);
 	const InputRecordingCaptureMarkerRanges input_recording_capture_markers =
 		boot_params->input_recording_capture_markers;
 	const bool create_input_recording = boot_params->create_input_recording;
-	auto done_callback = [input_recording, input_recording_capture_directory, input_recording_capture_mode,
+	auto done_callback = [input_recording, input_recording_capture_directory, capture_input_recording, input_recording_capture_mode,
 							 input_recording_capture_markers, create_input_recording](VMBootResult result, const Error& error) {
 		if (result != VMBootResult::StartupSuccess)
 		{
@@ -281,14 +283,14 @@ void EmuThread::startVM(std::shared_ptr<VMBootParameters> boot_params)
 		if (!input_recording.empty())
 		{
 			const bool started = create_input_recording ? g_InputRecording.create(input_recording, false, std::string()) :
-			                                              g_InputRecording.play(input_recording, true,
+			                                              g_InputRecording.play(input_recording, capture_input_recording,
 															  input_recording_capture_directory, input_recording_capture_mode,
 															  input_recording_capture_markers);
 			if (!started)
 			{
 				Host::ReportErrorAsync(TRANSLATE_STR("QtHost", "Input Recording Error"),
 					create_input_recording ? TRANSLATE_STR("QtHost", "Failed to start power-on input recording.") :
-											 TRANSLATE_STR("QtHost", "Failed to start power-on input recording replay with marker capture."));
+											 TRANSLATE_STR("QtHost", "Failed to start input recording replay."));
 				VMManager::Shutdown(false);
 				g_emu_thread->getEventLoop()->quit();
 				return;
@@ -2283,9 +2285,9 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -slowboot: Force slow boot for provided filename.\n");
 	std::fprintf(stderr, "  -state <index>: Loads specified save state by index.\n");
 	std::fprintf(stderr, "  -statefile <filename>: Loads state from the specified filename.\n");
-	std::fprintf(stderr, "  -input-recording <path>: Replays read-only from an exact absolute path or a path relative to the primary InputRecordings folder, and captures L3+R3 markers.\n");
+	std::fprintf(stderr, "  -input-recording <path>: Replays read-only without captures from an exact absolute path or a path relative to the primary InputRecordings folder.\n");
 	std::fprintf(stderr, "  -input-recording-capture-directory <path>: Sets the root directory for replay marker captures.\n");
-	std::fprintf(stderr, "  -input-recording-capture-mode <full|screenshots|savestates>: Selects both outputs, screenshots only, or savestates only.\n");
+	std::fprintf(stderr, "  -input-recording-capture-mode <full|screenshots|savestates>: Enables L3+R3 marker capture with both outputs, screenshots only, or savestates only.\n");
 	std::fprintf(stderr, "  -input-recording-capture-markers <spec>: Captures only the specified 1-based marker numbers and ranges (for example, 1,3-5).\n");
 	std::fprintf(stderr, "  -input-recording-create <path>: Creates at an exact absolute path or a path relative to the primary InputRecordings folder.\n");
 	std::fprintf(stderr, "  -fullscreen: Enters fullscreen mode immediately after starting.\n");
