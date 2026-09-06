@@ -118,6 +118,7 @@ namespace VMManager
 	static bool HasValidOrInitializingVM();
 	static void PrecacheCDVDFile();
 
+	static std::string GetSaveStateBackupFileName(const std::string_view filename);
 	static std::string GetCurrentSaveStateFileName(s32 slot, bool backup = false);
 	static bool DoLoadState(const char* filename, Error* error = nullptr);
 	static void DoSaveState(const char* filename, s32 slot_for_message, bool save_on_thread, bool backup_old_state,
@@ -1994,6 +1995,12 @@ bool SaveStateBase::vmFreeze()
 	return IsOkay();
 }
 
+std::string VMManager::GetSaveStateBackupFileName(const std::string_view filename)
+{
+	return Path::Combine(Path::Combine(Path::GetDirectory(filename), "backups"),
+		fmt::format("{}.backup", Path::GetFileName(filename)));
+}
+
 std::string VMManager::GetSaveStateFileName(const char* game_serial, u32 game_crc, s32 slot, bool backup)
 {
 	std::string filename;
@@ -2002,12 +2009,12 @@ std::string VMManager::GetSaveStateFileName(const char* game_serial, u32 game_cr
 		const std::string identity_serial = EmuFolders::GetContentIdentitySerial(game_serial, game_crc);
 		if (slot < 0)
 			filename = fmt::format("{} ({:08X}).resume", identity_serial, game_crc);
-		else if (backup)
-			filename = fmt::format("{} ({:08X}).{:02d}.backup", identity_serial, game_crc, slot);
 		else
 			filename = fmt::format("{} ({:08X}).{:02d}", identity_serial, game_crc, slot);
 
 		filename = Path::Combine(EmuFolders::Savestates, filename);
+		if (backup)
+			filename = GetSaveStateBackupFileName(filename);
 	}
 
 	return filename;
@@ -2085,9 +2092,11 @@ void VMManager::DoSaveState(const char* filename, s32 slot_for_message, bool sav
 	{
 		if (backup_old_state)
 		{
-			const std::string backup_filename(fmt::format("{}.backup", filename));
+			const std::string backup_filename = GetSaveStateBackupFileName(filename);
+			const std::string backup_directory(Path::GetDirectory(backup_filename));
 			Console.WriteLn(fmt::format("Creating save state backup {}...", backup_filename));
-			if ((FileSystem::DirectoryExists(backup_filename.c_str()) &&
+			if (!FileSystem::EnsureDirectoryExists(backup_directory.c_str(), false) ||
+				(FileSystem::DirectoryExists(backup_filename.c_str()) &&
 					!FileSystem::RecursiveDeleteDirectory(backup_filename.c_str())) ||
 				!FileSystem::RenamePath(filename, backup_filename.c_str()))
 			{
@@ -2196,7 +2205,7 @@ u32 VMManager::DeleteSaveStates(const char* game_serial, u32 game_crc, bool also
 
 		if (also_backups)
 		{
-			filename += ".backup";
+			filename = GetSaveStateBackupFileName(filename);
 			if (FileSystem::DirectoryExists(filename.c_str()) && FileSystem::RecursiveDeleteDirectory(filename.c_str()))
 				deleted++;
 		}
