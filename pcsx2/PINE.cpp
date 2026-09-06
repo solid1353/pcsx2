@@ -1040,6 +1040,22 @@ namespace PINEServer
 			return success;
 		}
 
+		bool RequestShutdownFromServer()
+		{
+			bool allowed = false;
+			Host::RunOnCPUThread(
+				[&allowed]() {
+					allowed = VMManager::HasValidVM() && VMManager::GetState() == VMState::Paused &&
+				              IsCurrentInputRecordingReadOnlyReplay();
+				},
+				true);
+			if (!allowed)
+				return false;
+
+			Host::RequestVMShutdown(false, false, false);
+			return true;
+		}
+
 		void OnVMPaused(const u32 vblank, const bool frame_advance_completed)
 		{
 			std::unique_lock lock(s_mutex);
@@ -1168,6 +1184,7 @@ namespace PINEServer
 		MsgReplayStatus = static_cast<u8>(ReplayAnalysis::Opcode::Status), /**< Reads the active replay and VBlank positions. */
 		MsgReplayStep = static_cast<u8>(ReplayAnalysis::Opcode::Step), /**< Advances a paused read-only replay by exact VBlanks. */
 		MsgReplayScreenshot = static_cast<u8>(ReplayAnalysis::Opcode::Screenshot), /**< Saves a paused replay screenshot to an exact path. */
+		MsgReplayShutdown = static_cast<u8>(ReplayAnalysis::Opcode::Shutdown), /**< Gracefully shuts down a paused read-only replay. */
 		MsgUnimplemented = 0xFF /**< Unimplemented IPC message. */
 	};
 
@@ -2002,6 +2019,19 @@ PINEServer::IPCBuffer PINEServer::ParseCommand(std::span<u8> buf, std::vector<u8
 				}
 
 				buf_cnt += static_cast<u32>(request->bytes_consumed);
+				ToResultVector(ret_buffer, ReplayAnalysis::PROTOCOL_VERSION, ret_cnt);
+				ret_cnt++;
+				break;
+			}
+			case MsgReplayShutdown:
+			{
+				if (!SafetyChecks(buf_cnt, 1, ret_cnt, 1, buf_size) || buf[buf_cnt] != ReplayAnalysis::PROTOCOL_VERSION ||
+					!ReplayAnalysis::RequestShutdownFromServer())
+				{
+					goto error;
+				}
+
+				buf_cnt++;
 				ToResultVector(ret_buffer, ReplayAnalysis::PROTOCOL_VERSION, ret_cnt);
 				ret_cnt++;
 				break;

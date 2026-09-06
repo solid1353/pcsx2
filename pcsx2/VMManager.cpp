@@ -82,6 +82,7 @@
 namespace VMManager
 {
 	static std::optional<int> s_pine_port_override;
+	static std::optional<bool> s_pine_enabled_override;
 	static std::optional<std::string> s_memory_card_override;
 	static bool s_output_muted_override = false;
 
@@ -488,6 +489,11 @@ void VMManager::Internal::SetPINEPortOverride(int port)
 	s_pine_port_override = port;
 }
 
+void VMManager::Internal::SetPINEEnabledOverride(bool enabled)
+{
+	s_pine_enabled_override = enabled;
+}
+
 void VMManager::Internal::SetMemoryCardOverride(std::string path)
 {
 	s_memory_card_override = std::move(path);
@@ -682,6 +688,8 @@ void VMManager::LoadCoreSettings(SettingsInterface& si)
 	EmuConfig.LoadSave(slw);
 	if (s_output_muted_override)
 		EmuConfig.SPU2.OutputMuted = true;
+	if (s_pine_enabled_override.has_value())
+		EmuConfig.EnablePINE = *s_pine_enabled_override;
 	if (s_pine_port_override.has_value())
 		EmuConfig.PINESlot = *s_pine_port_override;
 	if (s_memory_card_override.has_value())
@@ -993,7 +1001,7 @@ void VMManager::Internal::UpdateEmuFolders()
 		const bool additional_content_folders_changed =
 			EmuFolders::AdditionalContentFolders != old_additional_content_folders;
 		const bool content_aliases_changed = EmuFolders::ContentAliases != old_content_aliases ||
-			EmuFolders::ContentAliasIdentities != old_content_alias_identities;
+		                                     EmuFolders::ContentAliasIdentities != old_content_alias_identities;
 		const bool game_settings_folders_changed =
 			EmuFolders::GameSettings != old_game_settings_directory || additional_content_folders_changed || content_aliases_changed;
 		if (game_settings_folders_changed)

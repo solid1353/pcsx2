@@ -149,6 +149,7 @@ namespace PINEServer
 			Status = 0x1A,
 			Step = 0x1B,
 			Screenshot = 0x1C,
+			Shutdown = 0x1D,
 		};
 
 		struct ReplayStatus
@@ -193,6 +194,7 @@ namespace PINEServer
 		bool StartStepFromServer(const ParsedStepRequest& request, StepTicket* ticket);
 		bool WaitForStepFromServer(const StepTicket& ticket, ReplayStepResult* result);
 		bool SaveScreenshotFromServer(std::string path);
+		bool RequestShutdownFromServer();
 		void OnClientDisconnected();
 		void OnVMReset();
 		void OnVMShutdown();

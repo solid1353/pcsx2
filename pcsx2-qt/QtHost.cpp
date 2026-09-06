@@ -97,6 +97,8 @@ static std::unique_ptr<INISettingsInterface> s_secrets_settings_interface;
 static bool s_batch_mode = false;
 static bool s_nogui_mode = false;
 static bool s_surfaceless_mode = false;
+static bool s_agent_replay_mode = false;
+static bool s_pine_port_overridden = false;
 static bool s_start_big_picture_mode = false;
 static bool s_start_fullscreen = false;
 static bool s_center_display_window = false;
@@ -227,7 +229,12 @@ void EmuThread::startVM(std::shared_ptr<VMBootParameters> boot_params)
 		return;
 	}
 
-	if (s_timed_limiter_mode.has_value())
+	if (s_agent_replay_mode)
+	{
+		boot_params->start_turbo = false;
+		boot_params->start_unlimited = false;
+	}
+	else if (s_timed_limiter_mode.has_value())
 	{
 		m_timed_limiter_timer->stop();
 		boot_params->start_turbo = (s_timed_limiter_mode.value() == LimiterModeType::Turbo);
@@ -297,7 +304,7 @@ void EmuThread::startVM(std::shared_ptr<VMBootParameters> boot_params)
 			}
 		}
 
-		if (!Host::GetBoolSettingValue("UI", "StartPaused", false))
+		if (!s_agent_replay_mode && !Host::GetBoolSettingValue("UI", "StartPaused", false))
 		{
 			// This will come back and call OnVMResumed().
 			VMManager::SetState(VMState::Running);
@@ -2267,6 +2274,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -batch: Enables batch mode (exits after shutting down).\n");
 	std::fprintf(stderr, "  -nogui: Hides main window while running (implies batch mode).\n");
 	std::fprintf(stderr, "  -surfaceless: Runs emulation without creating or activating a window (implies batch mode).\n");
+	std::fprintf(stderr, "  -agent-replay: Starts a read-only input recording paused and surfaceless for PINE analysis.\n");
 	std::fprintf(stderr, "  -mute: Mutes audio output for this process without changing persistent settings.\n");
 	std::fprintf(stderr, "  -read-only-settings: Prevents settings INI writes for this process.\n");
 	std::fprintf(stderr, "  -discard-memory-card-writes: Reports memory card writes as successful without changing card contents.\n");
@@ -2365,6 +2373,18 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 				s_surfaceless_mode = true;
 				continue;
 			}
+			else if (CHECK_ARG(QStringLiteral("-agent-replay")))
+			{
+				s_agent_replay_mode = true;
+				s_batch_mode = true;
+				s_nogui_mode = true;
+				s_surfaceless_mode = true;
+				VMManager::Internal::SetOutputMutedOverride(true);
+				VMManager::Internal::SetPINEEnabledOverride(true);
+				INISettingsInterface::SetSaveSuppressed(true);
+				MemcardBusy::SetWriteDiscardMode(true);
+				continue;
+			}
 			else if (CHECK_ARG(QStringLiteral("-mute")))
 			{
 				VMManager::Internal::SetOutputMutedOverride(true);
@@ -2459,6 +2479,7 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 				}
 
 				VMManager::Internal::SetPINEPortOverride(port);
+				s_pine_port_overridden = true;
 				continue;
 			}
 			else if (CHECK_ARG(QStringLiteral("-fastboot")))
@@ -2732,6 +2753,35 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 		QMessageBox::critical(nullptr, QStringLiteral("Error"),
 			QStringLiteral("Input recording capture options require -input-recording playback."));
 		return false;
+	}
+	if (s_agent_replay_mode)
+	{
+		if (!autoboot || autoboot->input_recording.empty() || autoboot->create_input_recording)
+		{
+			QMessageBox::critical(nullptr, QStringLiteral("Error"),
+				QStringLiteral("Agent replay mode requires -input-recording playback."));
+			return false;
+		}
+		if (!s_pine_port_overridden)
+		{
+			QMessageBox::critical(nullptr, QStringLiteral("Error"),
+				QStringLiteral("Agent replay mode requires -pine-port."));
+			return false;
+		}
+		if (!autoboot->input_recording_capture_directory.empty() || autoboot->input_recording_capture_mode.has_value() ||
+			!autoboot->input_recording_capture_markers.empty())
+		{
+			QMessageBox::critical(nullptr, QStringLiteral("Error"),
+				QStringLiteral("Agent replay mode cannot be combined with marker capture options."));
+			return false;
+		}
+		if (s_timed_limiter_mode.has_value() || s_unlimited_frame_count.has_value() || autoboot->start_turbo.value_or(false) ||
+			autoboot->start_unlimited.value_or(false))
+		{
+			QMessageBox::critical(nullptr, QStringLiteral("Error"),
+				QStringLiteral("Agent replay mode cannot be combined with fast-forward options."));
+			return false;
+		}
 	}
 
 	// check autoboot parameters, if we set something like fullscreen without a bios
