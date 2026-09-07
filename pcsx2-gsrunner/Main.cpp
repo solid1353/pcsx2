@@ -413,6 +413,11 @@ void Host::RequestVMShutdown(bool allow_confirm, bool allow_save_state, bool def
 	VMManager::SetState(VMState::Stopping);
 }
 
+bool Host::IsAgentReplayMode()
+{
+	return false;
+}
+
 void Host::OnAchievementsLoginSuccess(const char* username, u32 points, u32 sc_points, u32 unread_messages)
 {
 	// noop

@@ -896,8 +896,11 @@ namespace PINEServer
 
 		bool ReplayStepIntervalsMatch(const ReplayStepResult& result, const u32 vblank_count)
 		{
-			return (result.end_replay_frame - result.start_replay_frame) == vblank_count &&
-			       (result.end_vblank - result.start_vblank) == vblank_count;
+			const u32 replay_frames = result.end_replay_frame - result.start_replay_frame;
+			const u32 physical_vblanks = result.end_vblank - result.start_vblank;
+			const bool initial_frame = result.start_replay_frame == 0 && result.start_vblank == 0 &&
+			                           physical_vblanks + 1 == vblank_count;
+			return replay_frames == vblank_count && (physical_vblanks == vblank_count || initial_frame);
 		}
 
 		bool IsScreenshotPathValid(const std::string_view path)
@@ -933,6 +936,25 @@ namespace PINEServer
 			request.path.assign(reinterpret_cast<const char*>(payload.data() + 5), path_size);
 			request.bytes_consumed = 5 + path_size;
 			if (!IsScreenshotPathValid(request.path))
+				return std::nullopt;
+			return request;
+		}
+
+		std::optional<ParsedGSDumpRequest> ParseGSDumpRequest(const std::span<const u8> payload)
+		{
+			if (payload.size() < 9 || payload[0] != PROTOCOL_VERSION)
+				return std::nullopt;
+
+			ParsedGSDumpRequest request;
+			u32 path_size;
+			std::memcpy(&request.frame_count, payload.data() + 1, sizeof(request.frame_count));
+			std::memcpy(&path_size, payload.data() + 5, sizeof(path_size));
+			if (request.frame_count == 0 || path_size == 0 || path_size > MAX_SCREENSHOT_PATH_SIZE || payload.size() < 9 + path_size)
+				return std::nullopt;
+
+			request.path.assign(reinterpret_cast<const char*>(payload.data() + 9), path_size);
+			request.bytes_consumed = 9 + path_size;
+			if (!IsScreenshotPathValid(request.path) || !StringUtil::EndsWithNoCase(request.path, ".png"))
 				return std::nullopt;
 			return request;
 		}
@@ -1040,13 +1062,35 @@ namespace PINEServer
 			return success;
 		}
 
+		bool QueueGSDumpFromServer(std::string path, const u32 frame_count)
+		{
+			if (!IsScreenshotPathValid(path) || !StringUtil::EndsWithNoCase(path, ".png") || frame_count == 0)
+				return false;
+
+			bool success = false;
+			Host::RunOnCPUThread(
+				[path = std::move(path), frame_count, &success]() mutable {
+					if (!VMManager::HasValidVM() || VMManager::GetState() != VMState::Paused ||
+						!IsCurrentInputRecordingReadOnlyReplay())
+					{
+						return;
+					}
+
+					MTGS::RunOnGSThread([path = std::move(path), frame_count]() { GSQueueSnapshot(path, frame_count); });
+					MTGS::WaitGS(false, false, false);
+					success = true;
+				},
+				true);
+			return success;
+		}
+
 		bool RequestShutdownFromServer()
 		{
 			bool allowed = false;
 			Host::RunOnCPUThread(
 				[&allowed]() {
 					allowed = VMManager::HasValidVM() && VMManager::GetState() == VMState::Paused &&
-				              IsCurrentInputRecordingReadOnlyReplay();
+				              (IsCurrentInputRecordingReadOnlyReplay() || Host::IsAgentReplayMode());
 				},
 				true);
 			if (!allowed)
@@ -1185,6 +1229,7 @@ namespace PINEServer
 		MsgReplayStep = static_cast<u8>(ReplayAnalysis::Opcode::Step), /**< Advances a paused read-only replay by exact VBlanks. */
 		MsgReplayScreenshot = static_cast<u8>(ReplayAnalysis::Opcode::Screenshot), /**< Saves a paused replay screenshot to an exact path. */
 		MsgReplayShutdown = static_cast<u8>(ReplayAnalysis::Opcode::Shutdown), /**< Gracefully shuts down a paused read-only replay. */
+		MsgReplayGSDump = static_cast<u8>(ReplayAnalysis::Opcode::GSDump), /**< Queues a GS dump from a paused read-only replay. */
 		MsgUnimplemented = 0xFF /**< Unimplemented IPC message. */
 	};
 
@@ -2032,6 +2077,22 @@ PINEServer::IPCBuffer PINEServer::ParseCommand(std::span<u8> buf, std::vector<u8
 				}
 
 				buf_cnt++;
+				ToResultVector(ret_buffer, ReplayAnalysis::PROTOCOL_VERSION, ret_cnt);
+				ret_cnt++;
+				break;
+			}
+			case MsgReplayGSDump:
+			{
+				const std::optional<ReplayAnalysis::ParsedGSDumpRequest> request =
+					ReplayAnalysis::ParseGSDumpRequest(buf.subspan(buf_cnt, buf_size - buf_cnt));
+				if (!request.has_value() ||
+					!SafetyChecks(buf_cnt, static_cast<int>(request->bytes_consumed), ret_cnt, 1, buf_size) ||
+					!ReplayAnalysis::QueueGSDumpFromServer(request->path, request->frame_count))
+				{
+					goto error;
+				}
+
+				buf_cnt += static_cast<u32>(request->bytes_consumed);
 				ToResultVector(ret_buffer, ReplayAnalysis::PROTOCOL_VERSION, ret_cnt);
 				ret_cnt++;
 				break;

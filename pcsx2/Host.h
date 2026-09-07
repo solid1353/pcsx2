@@ -99,6 +99,9 @@ namespace Host
 	/// Requests shut down of the current virtual machine.
 	void RequestVMShutdown(bool allow_confirm, bool allow_save_state, bool default_save_state);
 
+	/// Returns whether the process was launched for read-only agent replay.
+	bool IsAgentReplayMode();
+
 	/// Returns the user agent to use for HTTP requests.
 	std::string GetHTTPUserAgent();
 

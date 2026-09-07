@@ -150,6 +150,7 @@ namespace PINEServer
 			Step = 0x1B,
 			Screenshot = 0x1C,
 			Shutdown = 0x1D,
+			GSDump = 0x1E,
 		};
 
 		struct ReplayStatus
@@ -167,6 +168,13 @@ namespace PINEServer
 
 		struct ParsedScreenshotRequest
 		{
+			std::string path;
+			size_t bytes_consumed;
+		};
+
+		struct ParsedGSDumpRequest
+		{
+			u32 frame_count;
 			std::string path;
 			size_t bytes_consumed;
 		};
@@ -190,10 +198,12 @@ namespace PINEServer
 		bool IsScreenshotPathValid(std::string_view path);
 		std::optional<ParsedStepRequest> ParseStepRequest(std::span<const u8> payload);
 		std::optional<ParsedScreenshotRequest> ParseScreenshotRequest(std::span<const u8> payload);
+		std::optional<ParsedGSDumpRequest> ParseGSDumpRequest(std::span<const u8> payload);
 		bool QueryStatusFromServer(ReplayStatus* status);
 		bool StartStepFromServer(const ParsedStepRequest& request, StepTicket* ticket);
 		bool WaitForStepFromServer(const StepTicket& ticket, ReplayStepResult* result);
 		bool SaveScreenshotFromServer(std::string path);
+		bool QueueGSDumpFromServer(std::string path, u32 frame_count);
 		bool RequestShutdownFromServer();
 		void OnClientDisconnected();
 		void OnVMReset();

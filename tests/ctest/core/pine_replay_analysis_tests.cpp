@@ -59,6 +59,31 @@ namespace
 		EXPECT_FALSE(ParseScreenshotRequest(relative).has_value());
 	}
 
+	TEST(PINEReplayAnalysisProtocol, ParsesVersionedGSDumpRequest)
+	{
+#ifdef _WIN32
+		const std::string path = "C:\\captures\\frame.png";
+#else
+		const std::string path = "/captures/frame.png";
+#endif
+		std::vector<u8> payload(9 + path.size());
+		payload[0] = PROTOCOL_VERSION;
+		const u32 frame_count = 3;
+		const u32 path_size = static_cast<u32>(path.size());
+		std::memcpy(payload.data() + 1, &frame_count, sizeof(frame_count));
+		std::memcpy(payload.data() + 5, &path_size, sizeof(path_size));
+		std::copy(path.begin(), path.end(), payload.begin() + 9);
+
+		const std::optional<ParsedGSDumpRequest> request = ParseGSDumpRequest(payload);
+		ASSERT_TRUE(request.has_value());
+		EXPECT_EQ(request->frame_count, frame_count);
+		EXPECT_EQ(request->path, path);
+		EXPECT_EQ(request->bytes_consumed, 9 + path.size());
+
+		std::memset(payload.data() + 1, 0, sizeof(frame_count));
+		EXPECT_FALSE(ParseGSDumpRequest(payload).has_value());
+	}
+
 	TEST(PINEReplayAnalysisState, RequiresReadOnlyReplayAndBoundedAdvance)
 	{
 		EXPECT_TRUE(IsReadOnlyReplay(true, false, true));
@@ -76,8 +101,11 @@ namespace
 	TEST(PINEReplayAnalysisState, MatchesExactReplayAndPhysicalVBlankIntervals)
 	{
 		EXPECT_TRUE(ReplayStepIntervalsMatch({10, 13, 20, 23}, 3));
+		EXPECT_TRUE(ReplayStepIntervalsMatch({0, 1, 0, 0}, 1));
+		EXPECT_TRUE(ReplayStepIntervalsMatch({0, 3, 0, 2}, 3));
 		EXPECT_FALSE(ReplayStepIntervalsMatch({10, 12, 20, 23}, 3));
 		EXPECT_FALSE(ReplayStepIntervalsMatch({10, 13, 20, 22}, 3));
+		EXPECT_FALSE(ReplayStepIntervalsMatch({1, 4, 0, 2}, 3));
 		EXPECT_TRUE(ReplayStepIntervalsMatch({0xFFFFFFFEu, 1, 0xFFFFFFFFu, 2}, 3));
 	}
 } // namespace

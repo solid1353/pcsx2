@@ -1439,6 +1439,11 @@ void Host::RequestVMShutdown(bool allow_confirm, bool allow_save_state, bool def
 	}
 }
 
+bool Host::IsAgentReplayMode()
+{
+	return s_agent_replay_mode;
+}
+
 bool Host::IsFullscreen()
 {
 	return g_emu_thread->isFullscreen();
