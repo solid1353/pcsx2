@@ -2820,6 +2820,10 @@ void MainWindow::onVMPaused()
 
 void MainWindow::onVMResumed()
 {
+	const bool input_recording_active = g_InputRecording.isActive();
+	m_ui.actionInputRecNew->setEnabled(!input_recording_active);
+	m_ui.actionInputRecStop->setEnabled(input_recording_active);
+
 	// update UI
 	{
 		QSignalBlocker sb(m_ui.actionPause);

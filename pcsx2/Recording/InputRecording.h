@@ -48,6 +48,7 @@ public:
 	u32 getFrameCounter() const;
 	u32 getFrameCounterStateless() const;
 	bool isActive() const;
+	void stopReadOnlyReplayAtEndOnResume();
 	void processRecordQueue();
 
 	void setStartingFrame(u32 startingFrame);

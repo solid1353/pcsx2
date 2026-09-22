@@ -2980,6 +2980,9 @@ void VMManager::SetPaused(bool paused)
 	if (!HasValidVM())
 		return;
 
+	if (!paused && GetState() == VMState::Paused)
+		g_InputRecording.stopReadOnlyReplayAtEndOnResume();
+
 	Console.WriteLn(paused ? "(VMManager) Pausing..." : "(VMManager) Resuming...");
 	SetState(paused ? VMState::Paused : VMState::Running);
 }

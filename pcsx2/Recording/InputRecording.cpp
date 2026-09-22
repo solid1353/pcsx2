@@ -520,6 +520,15 @@ bool InputRecording::isActive() const
 	return m_is_active;
 }
 
+void InputRecording::stopReadOnlyReplayAtEndOnResume()
+{
+	if (m_is_active && m_controls.isReplaying() && !m_controls.isRecordModeEnabled() &&
+		!m_exit_on_replay_completion && m_frame_counter >= m_file.getTotalFrames())
+	{
+		stop();
+	}
+}
+
 void InputRecording::handleExceededFrameCounter()
 {
 	// Writable recordings continue past the end in record mode. Read-only playback stops there.
