@@ -187,12 +187,24 @@ static bool s_elf_executed = false;
 static std::string s_elf_override;
 static std::string s_input_profile_name;
 static u32 s_frame_advance_count = 0;
+static u32 s_frame_advance_hotkey_held_count = 0;
+static u64 s_frame_advance_hotkey_start_ticks = 0;
+static bool s_frame_advance_hotkey_continuous = false;
+static constexpr double FRAME_ADVANCE_HOLD_DELAY_MS = 300.0;
 static u64 s_unlimited_frame_count = 0;
 static u64 s_unlimited_frames_remaining = 0;
 static LimiterModeType s_unlimited_frame_fallback_mode = LimiterModeType::Nominal;
 static bool s_fast_boot_requested = false;
 static bool s_gs_open_on_initialize = false;
 static bool s_thread_affinities_set = false;
+
+static void ResetFrameAdvanceHotkeyState()
+{
+	s_frame_advance_count = 0;
+	s_frame_advance_hotkey_held_count = 0;
+	s_frame_advance_hotkey_start_ticks = 0;
+	s_frame_advance_hotkey_continuous = false;
+}
 
 static LimiterModeType s_limiter_mode = LimiterModeType::Nominal;
 static s64 s_limiter_ticks_per_frame = 0;
@@ -1487,6 +1499,7 @@ VMBootResult VMManager::Initialize(const VMBootParameters& boot_params, Error* e
 	Host::CancelGameListRefresh();
 
 	s_state.store(VMState::Initializing, std::memory_order_release);
+	ResetFrameAdvanceHotkeyState();
 	s_vm_thread_handle = Threading::ThreadHandle::GetForCallingThread();
 	Host::OnVMStarting();
 	VMManager::Internal::ResetVMHotkeyState();
@@ -1793,6 +1806,7 @@ void VMManager::Shutdown(bool save_resume_state)
 	// we'll probably already be stopping (this is how Qt calls shutdown),
 	// but just in case, so any of the stuff we call here knows we don't have a valid VM.
 	s_state.store(VMState::Stopping, std::memory_order_release);
+	ResetFrameAdvanceHotkeyState();
 	PINEServer::AgentControl::OnVMShutdown();
 	PINEServer::ReplayAnalysis::OnVMShutdown();
 
@@ -1906,6 +1920,7 @@ bool VMManager::RequestReset()
 void VMManager::Reset()
 {
 	pxAssert(HasValidVM());
+	ResetFrameAdvanceHotkeyState();
 	PINEServer::AgentControl::OnVMReset();
 	PINEServer::ReplayAnalysis::OnVMReset();
 
@@ -2532,6 +2547,45 @@ void VMManager::FrameAdvance(u32 num_frames /*= 1*/)
 	SetState(VMState::Running);
 }
 
+void VMManager::Internal::CancelFrameAdvanceHotkeyHold()
+{
+	if (s_frame_advance_hotkey_continuous && s_frame_advance_count > 0)
+		s_frame_advance_count = 1;
+
+	s_frame_advance_hotkey_held_count = 0;
+	s_frame_advance_hotkey_start_ticks = 0;
+	s_frame_advance_hotkey_continuous = false;
+}
+
+void VMManager::Internal::HandleFrameAdvanceHotkey(u32 num_frames, s32 pressed)
+{
+	if (pressed < 0)
+	{
+		CancelFrameAdvanceHotkeyHold();
+		return;
+	}
+	if (pressed == 0)
+	{
+		if (s_frame_advance_hotkey_held_count > 0 && --s_frame_advance_hotkey_held_count == 0)
+			CancelFrameAdvanceHotkeyHold();
+		return;
+	}
+
+	if (!HasValidVM())
+		return;
+
+	if (Achievements::IsHardcoreModeActive())
+	{
+		CancelFrameAdvanceHotkeyHold();
+		FrameAdvance(num_frames);
+		return;
+	}
+
+	if (s_frame_advance_hotkey_held_count++ == 0)
+		s_frame_advance_hotkey_start_ticks = Common::Timer::GetCurrentValue();
+	FrameAdvance(num_frames);
+}
+
 bool VMManager::ChangeDisc(CDVD_SourceType source, std::string path)
 {
 	const CDVD_SourceType old_type = CDVDsys_GetSourceType();
@@ -2973,12 +3027,33 @@ void VMManager::IdlePollUpdate()
 
 	InputManager::PollSources();
 	PINEServer::AgentControl::ApplyOverridesAfterInputPoll();
+
+	if (s_frame_advance_hotkey_held_count > 0 && !s_frame_advance_hotkey_continuous &&
+		GetState() == VMState::Paused &&
+		Common::Timer::ConvertValueToMilliseconds(
+			Common::Timer::GetCurrentValue() - s_frame_advance_hotkey_start_ticks) >= FRAME_ADVANCE_HOLD_DELAY_MS)
+	{
+		if (Achievements::IsHardcoreModeActive())
+		{
+			Internal::CancelFrameAdvanceHotkeyHold();
+		}
+		else
+		{
+			s_frame_advance_hotkey_continuous = true;
+			FrameAdvance(1);
+		}
+	}
 }
 
 void VMManager::SetPaused(bool paused)
 {
 	if (!HasValidVM())
 		return;
+	if (s_frame_advance_hotkey_held_count > 0 || s_frame_advance_hotkey_continuous)
+	{
+		s_frame_advance_count = 0;
+		Internal::CancelFrameAdvanceHotkeyHold();
+	}
 
 	if (!paused && GetState() == VMState::Paused)
 		g_InputRecording.stopReadOnlyReplayAtEndOnResume();
@@ -3128,8 +3203,16 @@ void VMManager::Internal::VSyncOnCPUThread()
 		s_frame_advance_count--;
 		if (s_frame_advance_count == 0)
 		{
-			// auto pause at the end of frame advance
-			SetState(VMState::Paused);
+			// A tap ends after its requested step; a hold keeps advancing one VSync at a time.
+			if (s_frame_advance_hotkey_continuous && s_frame_advance_hotkey_held_count > 0 &&
+				!Achievements::IsHardcoreModeActive())
+				s_frame_advance_count = 1;
+			else
+			{
+				s_frame_advance_hotkey_continuous = false;
+				// auto pause at the end of frame advance
+				SetState(VMState::Paused);
+			}
 		}
 	}
 

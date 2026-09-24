@@ -357,6 +357,8 @@ namespace VMManager
 		bool IsExecutionInterrupted();
 		void ELFLoadingOnCPUThread(std::string elf_path);
 		void EntryPointCompilingOnCPUThread();
+		void HandleFrameAdvanceHotkey(u32 num_frames, s32 pressed);
+		void CancelFrameAdvanceHotkeyHold();
 		void VSyncOnCPUThread();
 		void PollInputOnCPUThread();
 	} // namespace Internal

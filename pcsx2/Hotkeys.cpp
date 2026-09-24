@@ -175,13 +175,11 @@ DEFINE_HOTKEY(
 	})
 DEFINE_HOTKEY(
 	"FrameAdvance", TRANSLATE_NOOP("Hotkeys", "Speed"), TRANSLATE_NOOP("Hotkeys", "Frame Advance"), [](s32 pressed) {
-		if (!pressed && VMManager::HasValidVM())
-			VMManager::FrameAdvance(1);
+		VMManager::Internal::HandleFrameAdvanceHotkey(1, pressed);
 	})
 DEFINE_HOTKEY("FrameAdvanceDouble", TRANSLATE_NOOP("Hotkeys", "Speed"),
 	TRANSLATE_NOOP("Hotkeys", "Frame Advance (Double)"), [](s32 pressed) {
-		if (!pressed && VMManager::HasValidVM())
-			VMManager::FrameAdvance(2);
+		VMManager::Internal::HandleFrameAdvanceHotkey(2, pressed);
 	})
 DEFINE_HOTKEY("ToggleFrameLimit", TRANSLATE_NOOP("Hotkeys", "Speed"), TRANSLATE_NOOP("Hotkeys", "Toggle Frame Limit"),
 	[](s32 pressed) {

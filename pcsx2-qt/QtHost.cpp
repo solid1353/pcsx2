@@ -932,6 +932,7 @@ void EmuThread::onApplicationStateChanged(Qt::ApplicationState state)
 			m_was_paused_by_focus_loss = true;
 			VMManager::SetPaused(true);
 		}
+		VMManager::Internal::CancelFrameAdvanceHotkeyHold();
 
 		// Clear the state of all keyboard binds.
 		// That way, if we had a key held down, and lost focus, the bind won't be stuck enabled because we never
