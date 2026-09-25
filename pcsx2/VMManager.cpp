@@ -84,6 +84,7 @@ namespace VMManager
 	static std::optional<int> s_pine_port_override;
 	static std::optional<bool> s_pine_enabled_override;
 	static std::optional<std::string> s_memory_card_override;
+	static bool s_memory_cards_disconnected = false;
 	static bool s_output_muted_override = false;
 
 	static void SetDefaultLoggingSettings(SettingsInterface& si);
@@ -509,6 +510,13 @@ void VMManager::Internal::SetPINEEnabledOverride(bool enabled)
 void VMManager::Internal::SetMemoryCardOverride(std::string path)
 {
 	s_memory_card_override = std::move(path);
+	s_memory_cards_disconnected = false;
+}
+
+void VMManager::Internal::SetMemoryCardsDisconnected()
+{
+	s_memory_card_override.reset();
+	s_memory_cards_disconnected = true;
 }
 
 void VMManager::Internal::SetOutputMutedOverride(bool muted)
@@ -704,7 +712,12 @@ void VMManager::LoadCoreSettings(SettingsInterface& si)
 		EmuConfig.EnablePINE = *s_pine_enabled_override;
 	if (s_pine_port_override.has_value())
 		EmuConfig.PINESlot = *s_pine_port_override;
-	if (s_memory_card_override.has_value())
+	if (s_memory_cards_disconnected)
+	{
+		for (Pcsx2Config::McdOptions& card : EmuConfig.Mcd)
+			card.Enabled = false;
+	}
+	else if (s_memory_card_override.has_value())
 	{
 		EmuConfig.CurrentMemoryCardPath = *s_memory_card_override;
 		EmuConfig.Mcd[0].Enabled = true;

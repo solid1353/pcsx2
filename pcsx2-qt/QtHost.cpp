@@ -2284,7 +2284,8 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -mute: Mutes audio output for this process without changing persistent settings.\n");
 	std::fprintf(stderr, "  -read-only-settings: Prevents settings INI writes for this process.\n");
 	std::fprintf(stderr, "  -discard-memory-card-writes: Reports memory card writes as successful without changing card contents.\n");
-	std::fprintf(stderr, "  -memory-card <path>: Uses path as the slot 1 memory card without changing persistent settings.\n");
+	std::fprintf(stderr, "  -memory-card <path|none>: Uses path as the slot 1 card, or disconnects all slots with none for this process.\n");
+	std::fprintf(stderr, "                            Does not change persistent settings; none is case-insensitive.\n");
 	std::fprintf(stderr, "  -pnach <path>: Uses supplied PNACH files in order instead of automatic CRC-PNACH loading. May be repeated.\n");
 	std::fprintf(stderr, "  -pnach-line <line>: Appends an executable PNACH line after file-based PNACHs. May be repeated.\n");
 	std::fprintf(stderr, "  -portable: Force enable portable mode to store data in local PCSX2 path instead of the default configuration path. Overrides '-datapath'.\n");
@@ -2408,7 +2409,14 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 			}
 			else if (CHECK_ARG_PARAM(QStringLiteral("-memory-card")))
 			{
-				const QFileInfo path(*(++it));
+				const QString value = *(++it);
+				if (value.compare(QStringLiteral("none"), Qt::CaseInsensitive) == 0)
+				{
+					VMManager::Internal::SetMemoryCardsDisconnected();
+					continue;
+				}
+
+				const QFileInfo path(value);
 				if (!path.isFile())
 				{
 					QMessageBox::critical(nullptr, QStringLiteral("Error"),
