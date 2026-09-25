@@ -2284,6 +2284,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -mute: Mutes audio output for this process without changing persistent settings.\n");
 	std::fprintf(stderr, "  -read-only-settings: Prevents settings INI writes for this process.\n");
 	std::fprintf(stderr, "  -discard-memory-card-writes: Reports memory card writes as successful without changing card contents.\n");
+	std::fprintf(stderr, "  -volatile-memory-card: Keeps file memory card changes in RAM for this process; folder cards are disconnected.\n");
 	std::fprintf(stderr, "  -memory-card <path|none>: Uses path as the slot 1 card, or disconnects all slots with none for this process.\n");
 	std::fprintf(stderr, "                            Does not change persistent settings; none is case-insensitive.\n");
 	std::fprintf(stderr, "  -pnach <path>: Uses supplied PNACH files in order instead of automatic CRC-PNACH loading. May be repeated.\n");
@@ -2338,6 +2339,7 @@ std::shared_ptr<VMBootParameters>& QtHost::AutoBoot(std::shared_ptr<VMBootParame
 bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VMBootParameters>& autoboot)
 {
 	bool no_more_args = false;
+	bool explicit_discard_memory_card_writes = false;
 
 	if (args.empty())
 	{
@@ -2404,7 +2406,13 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 			}
 			else if (CHECK_ARG(QStringLiteral("-discard-memory-card-writes")))
 			{
+				explicit_discard_memory_card_writes = true;
 				MemcardBusy::SetWriteDiscardMode(true);
+				continue;
+			}
+			else if (CHECK_ARG(QStringLiteral("-volatile-memory-card")))
+			{
+				FileMcd_SetVolatileMode(true);
 				continue;
 			}
 			else if (CHECK_ARG_PARAM(QStringLiteral("-memory-card")))
@@ -2768,6 +2776,15 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 			QStringLiteral("Input recording capture options require -input-recording playback."));
 		return false;
 	}
+	if (FileMcd_IsVolatileMode() && explicit_discard_memory_card_writes)
+	{
+		QMessageBox::critical(nullptr, QStringLiteral("Error"),
+			QStringLiteral("-volatile-memory-card cannot be combined with -discard-memory-card-writes."));
+		return false;
+	}
+	// The explicit volatile mode overrides agent replay's implicit discard default.
+	if (FileMcd_IsVolatileMode())
+		MemcardBusy::SetWriteDiscardMode(false);
 	if (s_agent_replay_mode)
 	{
 		if (!autoboot || autoboot->input_recording.empty() || autoboot->create_input_recording)

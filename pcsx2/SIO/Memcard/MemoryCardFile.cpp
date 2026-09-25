@@ -16,6 +16,7 @@
 
 #include <array>
 #include <chrono>
+#include <cstring>
 
 #include "Config.h"
 #include "Host.h"
@@ -31,10 +32,12 @@ static constexpr int MCD_SIZE = 1024 * 8 * 16; // Legacy PSX card default size
 static constexpr int MC2_MBSIZE = 1024 * 528 * 2; // Size of a single megabyte of card data
 
 static constexpr int MC2_ERASE_SIZE = 528 * 16;
+static constexpr u32 MC2_CHECKSUM_OFFSET = 0x210;
 
 static const char* s_folder_mem_card_id_file = "_pcsx2_superblock";
 
 bool FileMcd_Open = false;
+static bool s_volatile_mode = false;
 
 // ECC code ported from mymc
 // https://sourceforge.net/p/mymc-opl/code/ci/master/tree/ps2mc_ecc.py
@@ -153,14 +156,23 @@ static bool ConvertRAWtoNoECC(const char* file_in, const char* file_out)
 // --------------------------------------------------------------------------------------
 //  FileMemoryCard
 // --------------------------------------------------------------------------------------
-// Provides thread-safe direct file IO mapping.
+// Provides direct file IO or process-lifetime RAM copies for file memory cards.
 //
 class FileMemoryCard
 {
 protected:
+	struct VolatileCard
+	{
+		std::vector<u8> data;
+		u64 checksum = 0;
+		bool ispsx = false;
+	};
+
 	std::FILE* m_file[8] = {};
 	s64 m_fileSize[8] = {};
 	std::string m_filenames[8] = {};
+	std::map<std::string, VolatileCard> m_volatile_cards;
+	VolatileCard* m_volatile_slots[8] = {};
 	std::vector<u8> m_currentdata;
 	u64 m_chksum[8] = {};
 	bool m_ispsx[8] = {};
@@ -185,6 +197,7 @@ public:
 	u64 GetCRC(uint slot);
 
 protected:
+	bool LoadVolatileCard(VolatileCard& card, const std::string& filename);
 	bool Seek(std::FILE* f, u32 adr);
 	bool Create(const char* mcdFile, uint sizeInMB);
 };
@@ -259,11 +272,69 @@ FileMemoryCard::FileMemoryCard()
 
 FileMemoryCard::~FileMemoryCard() = default;
 
+bool FileMemoryCard::LoadVolatileCard(VolatileCard& card, const std::string& filename)
+{
+	if (FileSystem::FileExists(filename.c_str()))
+	{
+		auto source = FileSystem::OpenManagedSharedCFile(filename.c_str(), "rb", FileSystem::FileShareMode::DenyNone);
+		if (!source)
+			return false;
+
+		const s64 file_size = FileSystem::FSize64(source.get());
+		if (file_size < 0 || static_cast<u64>(file_size) > card.data.max_size())
+			return false;
+
+		if (file_size > 0)
+		{
+			std::vector<u8> source_data(static_cast<size_t>(file_size));
+			if (std::fread(source_data.data(), source_data.size(), 1, source.get()) != 1)
+				return false;
+
+			if (filename.ends_with(".bin") || filename.ends_with(".mc2"))
+			{
+				const size_t blocks = source_data.size() / 512;
+				if (blocks > card.data.max_size() / 528)
+					return false;
+				card.data.resize(blocks * 528);
+				for (size_t i = 0; i < blocks; i++)
+				{
+					u8* block = card.data.data() + i * 528;
+					std::memcpy(block, source_data.data() + i * 512, 512);
+					for (size_t j = 0; j < 4; j++)
+					{
+						const u32 checksum = CalculateECC(block + j * 128);
+						std::memcpy(block + 512 + j * 3, &checksum, 3);
+					}
+					std::memset(block + 524, 0, 4);
+				}
+			}
+			else
+			{
+				card.data = std::move(source_data);
+			}
+		}
+	}
+
+	// An uncreated or empty selected card starts as a blank 8 MB card in RAM only.
+	if (card.data.empty())
+		card.data.assign(8 * MC2_MBSIZE, 0xff);
+
+	card.ispsx = card.data.size() == MCD_SIZE;
+	if (!card.ispsx)
+	{
+		if (card.data.size() < MC2_CHECKSUM_OFFSET + sizeof(card.checksum))
+			return false;
+		std::memcpy(&card.checksum, card.data.data() + MC2_CHECKSUM_OFFSET, sizeof(card.checksum));
+	}
+	return true;
+}
+
 void FileMemoryCard::Open()
 {
 	for (int slot = 0; slot < 8; ++slot)
 	{
 		m_filenames[slot] = {};
+		m_volatile_slots[slot] = nullptr;
 
 		if (EmuConfig.Mcd[slot].Type != MemoryCardType::File)
 			continue;
@@ -277,13 +348,37 @@ void FileMemoryCard::Open()
 		}
 
 		const std::string fname = EmuConfig.FullpathToMcd(slot);
-		const char* open_mode = MemcardBusy::IsWriteDiscardMode() ? "rb" : "r+b";
 
 		if (!EmuConfig.Mcd[slot].Enabled || fname.empty())
 		{
 			Console.WriteLnFmt("McdSlot {} [File]: [disabled/empty filename]", slot);
 			continue;
 		}
+		if (s_volatile_mode)
+		{
+			auto it = m_volatile_cards.find(fname);
+			if (it == m_volatile_cards.end())
+			{
+				VolatileCard card;
+				if (!LoadVolatileCard(card, fname))
+				{
+					Host::ReportErrorAsync("Memory Card Read Failed",
+						fmt::format("Unable to load volatile memory card from:\n{}", fname));
+					continue;
+				}
+				it = m_volatile_cards.emplace(fname, std::move(card)).first;
+			}
+
+			m_volatile_slots[slot] = &it->second;
+			m_fileSize[slot] = static_cast<s64>(it->second.data.size());
+			m_ispsx[slot] = it->second.ispsx;
+			m_filenames[slot] = fname;
+			Console.WriteLnFmt(Color_Green, "McdSlot {} [Volatile File]: {} [{} MB]", slot,
+				Path::GetFileName(fname), (m_fileSize[slot] + (MCD_SIZE + 1)) / MC2_MBSIZE);
+			continue;
+		}
+
+		const char* open_mode = MemcardBusy::IsWriteDiscardMode() ? "rb" : "r+b";
 
 		if (FileSystem::GetPathFileSize(fname.c_str()) <= 0)
 		{
@@ -332,7 +427,7 @@ void FileMemoryCard::Open()
 
 			m_filenames[slot] = std::move(fname);
 			m_ispsx[slot] = m_fileSize[slot] == 0x20000;
-			m_chkaddr = 0x210;
+			m_chkaddr = MC2_CHECKSUM_OFFSET;
 
 			if (!m_ispsx[slot] && FileSystem::FSeek64(m_file[slot], m_chkaddr, SEEK_SET) == 0)
 			{
@@ -348,6 +443,16 @@ void FileMemoryCard::Close()
 {
 	for (int slot = 0; slot < 8; ++slot)
 	{
+		if (VolatileCard* card = m_volatile_slots[slot])
+		{
+			if (!card->ispsx)
+				std::memcpy(card->data.data() + MC2_CHECKSUM_OFFSET, &card->checksum, sizeof(card->checksum));
+			m_volatile_slots[slot] = nullptr;
+			m_filenames[slot] = {};
+			m_fileSize[slot] = -1;
+			continue;
+		}
+
 		if (!m_file[slot])
 			continue;
 
@@ -400,7 +505,7 @@ bool FileMemoryCard::Create(const char* mcdFile, uint sizeInMB)
 
 s32 FileMemoryCard::IsPresent(uint slot)
 {
-	return m_file[slot] != nullptr;
+	return m_file[slot] != nullptr || m_volatile_slots[slot] != nullptr;
 }
 
 void FileMemoryCard::GetSizeInfo(uint slot, McdSizeInfo& outways)
@@ -409,8 +514,8 @@ void FileMemoryCard::GetSizeInfo(uint slot, McdSizeInfo& outways)
 	outways.EraseBlockSizeInSectors = 16; // 0x0010
 	outways.Xor = 18; // 0x12, XOR 02 00 00 10
 
-	pxAssert(m_file[slot]);
-	if (m_file[slot])
+	pxAssert(IsPresent(slot));
+	if (IsPresent(slot))
 		outways.McdSizeInSectors = static_cast<u32>(m_fileSize[slot]) / (outways.SectorSize + outways.EraseBlockSizeInSectors);
 	else
 		outways.McdSizeInSectors = 0x4000;
@@ -426,6 +531,14 @@ bool FileMemoryCard::IsPSX(uint slot)
 
 s32 FileMemoryCard::Read(uint slot, u8* dest, u32 adr, int size)
 {
+	if (const VolatileCard* card = m_volatile_slots[slot])
+	{
+		if (size <= 0 || adr > card->data.size() || static_cast<size_t>(size) > card->data.size() - adr)
+			return 0;
+		std::memcpy(dest, card->data.data() + adr, size);
+		return 1;
+	}
+
 	std::FILE* mcfp = m_file[slot];
 	if (!mcfp)
 	{
@@ -440,6 +553,49 @@ s32 FileMemoryCard::Read(uint slot, u8* dest, u32 adr, int size)
 
 s32 FileMemoryCard::Save(uint slot, const u8* src, u32 adr, int size)
 {
+	if (VolatileCard* card = m_volatile_slots[slot])
+	{
+		if (size <= 0 || adr > card->data.size() || static_cast<size_t>(size) > card->data.size() - adr)
+			return 0;
+
+		if (card->ispsx)
+		{
+			std::memcpy(card->data.data() + adr, src, size);
+		}
+		else
+		{
+			m_currentdata.resize(size);
+			std::memcpy(m_currentdata.data(), card->data.data() + adr, size);
+			for (int i = 0; i < size; i++)
+			{
+				if ((m_currentdata[i] & src[i]) != src[i])
+					Console.Warning("(FileMcd) Warning: writing to uncleared data. (%d) [%08X]", slot, adr);
+				m_currentdata[i] &= src[i];
+			}
+			if (adr == MC2_CHECKSUM_OFFSET)
+				Console.Warning("(FileMcd) Warning: checksum sector overwritten. (%d)", slot);
+			for (int i = 0; i + static_cast<int>(sizeof(u64)) <= size; i += static_cast<int>(sizeof(u64)))
+			{
+				u64 word;
+				std::memcpy(&word, m_currentdata.data() + i, sizeof(word));
+				card->checksum ^= word;
+			}
+			std::memcpy(card->data.data() + adr, m_currentdata.data(), size);
+		}
+
+		static auto last = std::chrono::time_point<std::chrono::system_clock>();
+		const std::chrono::duration<float> elapsed = std::chrono::system_clock::now() - last;
+		if (elapsed > std::chrono::seconds(5))
+		{
+			Host::AddIconOSDMessage(fmt::format("MemoryCardSave{}", slot), ICON_PF_MEMORY_CARD,
+				fmt::format(TRANSLATE_FS("MemoryCard", "Memory Card '{}' was saved in RAM."),
+					Path::GetFileName(m_filenames[slot])),
+				Host::OSD_INFO_DURATION);
+			last = std::chrono::system_clock::now();
+		}
+		return 1;
+	}
+
 	std::FILE* mcfp = m_file[slot];
 
 	if (!mcfp)
@@ -510,6 +666,14 @@ s32 FileMemoryCard::Save(uint slot, const u8* src, u32 adr, int size)
 
 s32 FileMemoryCard::EraseBlock(uint slot, u32 adr)
 {
+	if (VolatileCard* card = m_volatile_slots[slot])
+	{
+		if (adr > card->data.size() || MC2_ERASE_SIZE > card->data.size() - adr)
+			return 0;
+		std::memset(card->data.data() + adr, 0xff, MC2_ERASE_SIZE);
+		return 1;
+	}
+
 	std::FILE* mcfp = m_file[slot];
 	if (!mcfp)
 	{
@@ -527,6 +691,24 @@ s32 FileMemoryCard::EraseBlock(uint slot, u32 adr)
 
 u64 FileMemoryCard::GetCRC(uint slot)
 {
+	if (const VolatileCard* card = m_volatile_slots[slot])
+	{
+		if (!card->ispsx)
+			return card->checksum;
+
+		u64 checksum = 0;
+		// Match the file-backed PSX CRC's whole-chunk coverage.
+		constexpr size_t chunk_size = sizeof(u64) * 528 * 8;
+		const size_t processed_size = (card->data.size() / chunk_size) * chunk_size;
+		for (size_t offset = 0; offset < processed_size; offset += sizeof(u64))
+		{
+			u64 word;
+			std::memcpy(&word, card->data.data() + offset, sizeof(word));
+			checksum ^= word;
+		}
+		return checksum;
+	}
+
 	std::FILE* mcfp = m_file[slot];
 	if (!mcfp)
 		return 0;
@@ -582,6 +764,16 @@ uint FileMcd_ConvertToSlot(uint port, uint slot)
 	return slot + 4; // multitap 2
 }
 
+void FileMcd_SetVolatileMode(bool enabled)
+{
+	s_volatile_mode = enabled;
+}
+
+bool FileMcd_IsVolatileMode()
+{
+	return s_volatile_mode;
+}
+
 void FileMcd_SetType()
 {
 	// detect inserted memory card types
@@ -597,7 +789,19 @@ void FileMcd_SetType()
 
 			const std::string path(EmuConfig.FullpathToMcd(slot));
 			if (FileSystem::DirectoryExists(path.c_str()))
+			{
+				if (s_volatile_mode)
+				{
+					EmuConfig.Mcd[slot].Enabled = false;
+					EmuConfig.Mcd[slot].Type = MemoryCardType::Empty;
+					Console.Warning("McdSlot %u: folder card disabled in volatile mode: %s", slot, path.c_str());
+					Host::AddIconOSDMessage(fmt::format("VolatileMemoryCardFolder{}", slot), ICON_PF_MEMORY_CARD,
+						fmt::format("Folder memory card '{}' is disconnected in volatile mode.", Path::GetFileName(path)),
+						Host::OSD_WARNING_DURATION);
+					continue;
+				}
 				type = MemoryCardType::Folder;
+			}
 
 			EmuConfig.Mcd[slot].Type = type;
 		}
