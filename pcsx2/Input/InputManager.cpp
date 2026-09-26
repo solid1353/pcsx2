@@ -63,6 +63,8 @@ struct InputBinding
 	u8 num_keys = 0;
 	u8 full_mask = 0;
 	u8 current_mask = 0;
+	float axis_values[MAX_KEYS_PER_BINDING] = {};
+	float last_axis_value = 0.0f;
 };
 
 struct PadVibrationBinding
@@ -105,6 +107,7 @@ namespace InputManager
 	static bool ParseBindingAndGetSource(const std::string_view binding, InputBindingKey* key, InputSource** source);
 
 	static bool IsAxisHandler(const InputEventHandler& handler);
+	static bool IsKeyboardAxisBinding(const InputBinding* binding);
 	static float ApplySingleBindingScale(float sensitivity, float deadzone, float value);
 
 	static void AddHotkeyBindings(SettingsInterface& si, bool is_profile);
@@ -1105,6 +1108,18 @@ bool InputManager::IsAxisHandler(const InputEventHandler& handler)
 	return std::holds_alternative<InputAxisEventHandler>(handler);
 }
 
+bool InputManager::IsKeyboardAxisBinding(const InputBinding* binding)
+{
+	if (!IsAxisHandler(binding->handler))
+		return false;
+	for (u32 i = 0; i < binding->num_keys; i++)
+	{
+		if (binding->keys[i].source_type != InputSourceType::Keyboard)
+			return false;
+	}
+	return true;
+}
+
 bool InputManager::InvokeEvents(InputBindingKey key, float value, GenericInputBinding generic_key,
 	GenericInputBinding axis_neg_key, GenericInputBinding axis_pos_key)
 {
@@ -1165,7 +1180,13 @@ bool InputManager::ProcessEvent(InputBindingKey key, float value, bool skip_butt
 			// and 0 on release (when the full state changes).
 			if (IsAxisHandler(binding->handler))
 			{
-				if (value_to_pass >= 0.0f && (!skip_button_handlers || value_to_pass == 0.0f))
+				if (IsKeyboardAxisBinding(binding))
+				{
+					const bool active = new_state && !skip_button_handlers;
+					binding->current_mask = active ? (binding->current_mask | bit) : (binding->current_mask & ~bit);
+					binding->axis_values[i] = active ? value_to_pass : 0.0f;
+				}
+				else if (value_to_pass >= 0.0f && (!skip_button_handlers || value_to_pass == 0.0f))
 					std::get<InputAxisEventHandler>(binding->handler)(key, value_to_pass);
 			}
 			else if (binding->num_keys >= min_num_keys)
@@ -1225,6 +1246,77 @@ bool InputManager::ProcessEvent(InputBindingKey key, float value, bool skip_butt
 		}
 	}
 
+	// Recompute keyboard axis bindings after all chord masks have been updated. Include bindings
+	// for the other keys in a chord, so releasing Shift can restore an already-held plain key.
+	std::vector<InputBinding*> affected_axis_bindings;
+	const auto add_affected = [&](InputBinding* binding) {
+		if (IsKeyboardAxisBinding(binding) &&
+			std::find(affected_axis_bindings.begin(), affected_axis_bindings.end(), binding) == affected_axis_bindings.end())
+		{
+			affected_axis_bindings.push_back(binding);
+		}
+	};
+	for (auto it = range.first; it != range.second; ++it)
+	{
+		InputBinding* binding = it->second.get();
+		add_affected(binding);
+		if (!IsKeyboardAxisBinding(binding) || binding->num_keys == 1)
+			continue;
+		for (u32 i = 0; i < binding->num_keys; i++)
+		{
+			const auto related = s_binding_map.equal_range(binding->keys[i].MaskDirection());
+			for (auto other = related.first; other != related.second; ++other)
+				add_affected(other->second.get());
+		}
+	}
+
+	for (InputBinding* binding : affected_axis_bindings)
+	{
+		float next_value = 0.0f;
+		if (binding->current_mask == binding->full_mask)
+		{
+			bool shadowed = false;
+			for (u32 i = 0; i < binding->num_keys && !shadowed; i++)
+			{
+				const auto related = s_binding_map.equal_range(binding->keys[i].MaskDirection());
+				for (auto other = related.first; other != related.second; ++other)
+				{
+					const InputBinding* longer = other->second.get();
+					if (longer == binding || longer->num_keys <= binding->num_keys ||
+						longer->current_mask != longer->full_mask)
+					{
+						continue;
+					}
+
+					bool contains_binding = true;
+					for (u32 j = 0; j < binding->num_keys; j++)
+					{
+						bool found = false;
+						for (u32 k = 0; k < longer->num_keys; k++)
+							found |= (binding->keys[j].MaskDirection() == longer->keys[k].MaskDirection());
+						contains_binding &= found;
+					}
+					if (contains_binding)
+					{
+						shadowed = true;
+						break;
+					}
+				}
+			}
+			if (!shadowed)
+			{
+				next_value = binding->axis_values[0];
+				for (u32 i = 1; i < binding->num_keys; i++)
+					next_value = std::min(next_value, binding->axis_values[i]);
+			}
+		}
+		if (next_value != binding->last_axis_value)
+		{
+			binding->last_axis_value = next_value;
+			std::get<InputAxisEventHandler>(binding->handler)(binding->keys[0], next_value);
+		}
+	}
+
 	return true;
 }
 
@@ -1245,7 +1337,20 @@ void InputManager::ClearBindStateFromSource(InputBindingKey key)
 			if (binding->keys[i].MaskDirection() != match_key)
 				continue;
 
-			std::get<InputAxisEventHandler>(binding->handler)(key, 0.0f);
+			if (IsKeyboardAxisBinding(binding.get()))
+			{
+				binding->current_mask &= ~(static_cast<u8>(1) << i);
+				binding->axis_values[i] = 0.0f;
+				if (binding->last_axis_value != 0.0f)
+				{
+					binding->last_axis_value = 0.0f;
+					std::get<InputAxisEventHandler>(binding->handler)(binding->keys[0], 0.0f);
+				}
+			}
+			else
+			{
+				std::get<InputAxisEventHandler>(binding->handler)(key, 0.0f);
+			}
 			break;
 		}
 	}

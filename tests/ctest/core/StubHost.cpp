@@ -282,6 +282,10 @@ int Host::LocaleSensitiveCompare(std::string_view lhs, std::string_view rhs)
 
 std::optional<u32> InputManager::ConvertHostKeyboardStringToCode(const std::string_view str)
 {
+	if (str == "Shift")
+		return 16;
+	if (str == "W")
+		return 87;
 	return std::nullopt;
 }
 
