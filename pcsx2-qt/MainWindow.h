@@ -301,6 +301,7 @@ private:
 	void destroyDisplayWidget(bool show_game_list);
 	void updateDisplayWidgetCursor();
 	void centerDisplayWindow();
+	void centerMainWindow();
 
 	SettingsWindow* getSettingsWindow();
 

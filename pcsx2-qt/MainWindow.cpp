@@ -102,6 +102,8 @@ MainWindow* g_main_window = nullptr;
 // UI thread VM validity.
 static bool s_vm_valid = false;
 static bool s_vm_paused = false;
+static constexpr int RECENTER_FRAME_WIDTH = 1024;
+static constexpr int RECENTER_FRAME_HEIGHT = 768;
 static QString s_current_title;
 static QString s_current_elf_override;
 static QString s_current_disc_path;
@@ -3364,7 +3366,10 @@ void MainWindow::recenterWindow()
 	}
 	else
 	{
-		centerDisplayWindow();
+		const QSize frame_chrome_size = frameGeometry().size() - geometry().size();
+		QtUtils::ResizePotentiallyFixedSizeWindow(this,
+			RECENTER_FRAME_WIDTH - frame_chrome_size.width(), RECENTER_FRAME_HEIGHT - frame_chrome_size.height());
+		centerMainWindow();
 	}
 }
 
@@ -3402,6 +3407,11 @@ void MainWindow::centerDisplayWindow()
 	}
 #endif
 
+	centerMainWindow();
+}
+
+void MainWindow::centerMainWindow()
+{
 	const QScreen* screen = this->screen();
 	if (screen)
 	{
@@ -3437,9 +3447,7 @@ void MainWindow::displayResizeRequested(qint32 width, qint32 height, bool force_
 		if (!center_window)
 			return requested_display_size;
 
-		static constexpr int TARGET_FRAME_WIDTH = 1024;
-		static constexpr int TARGET_FRAME_HEIGHT = 768;
-		const QSize target_frame_size(TARGET_FRAME_WIDTH, TARGET_FRAME_HEIGHT);
+		const QSize target_frame_size(RECENTER_FRAME_WIDTH, RECENTER_FRAME_HEIGHT);
 		const QSize frame_chrome_size = frame_size - window_size;
 		const QSize maximum_display_size = target_frame_size - frame_chrome_size - chrome_size;
 		const int maximum_width = std::max(maximum_display_size.width(), 1);
