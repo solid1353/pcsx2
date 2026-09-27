@@ -2200,7 +2200,7 @@ BEGIN_HOTKEY_LIST(g_host_hotkeys)
 DEFINE_HOTKEY("RecenterDisplay", TRANSLATE_NOOP("Hotkeys", "Navigation"), TRANSLATE_NOOP("Hotkeys", "Recenter Display"),
 	[](s32 pressed) {
 		if (pressed == 0 && g_emu_thread && !g_emu_thread->isFullscreen())
-			g_emu_thread->requestCenteredDisplaySize();
+			QMetaObject::invokeMethod(g_main_window, "recenterWindow", Qt::QueuedConnection);
 	})
 END_HOTKEY_LIST()
 

@@ -859,7 +859,7 @@ void MainWindow::connectSignals()
 	connect(m_ui.actionToolbarHotkeySettings, &QAction::triggered,
 		[this]() { doControllerSettings(ControllerSettingsWindow::Category::HotkeySettings); });
 	connect(m_ui.actionToolbarScreenshot, &QAction::triggered, this, &MainWindow::onScreenshotActionTriggered);
-	connect(m_ui.actionToolbarRecenter, &QAction::triggered, []() { g_emu_thread->requestCenteredDisplaySize(); });
+	connect(m_ui.actionToolbarRecenter, &QAction::triggered, this, &MainWindow::recenterWindow);
 	connect(m_ui.actionExit, &QAction::triggered, this, &MainWindow::close);
 	connect(m_ui.actionScreenshot, &QAction::triggered, this, &MainWindow::onScreenshotActionTriggered);
 	connect(m_ui.menuLoadState, &QMenu::aboutToShow, this, &MainWindow::onLoadStateMenuAboutToShow);
@@ -1549,7 +1549,7 @@ void MainWindow::updateDisplayRelatedActions(bool has_surface, bool render_to_ma
 	m_ui.menuWindowSize->setEnabled(has_surface && !fullscreen);
 	m_ui.actionFullscreen->setEnabled(has_surface);
 	m_ui.actionToolbarFullscreen->setEnabled(has_surface);
-	m_ui.actionToolbarRecenter->setEnabled(has_surface && !fullscreen);
+	m_ui.actionToolbarRecenter->setEnabled(!fullscreen && (has_surface || !s_vm_valid));
 
 	{
 		QSignalBlocker blocker(m_ui.actionFullscreen);
@@ -3355,10 +3355,23 @@ void MainWindow::createDisplayWidget(bool fullscreen, bool render_to_main)
 	QGuiApplication::sync();
 }
 
+void MainWindow::recenterWindow()
+{
+	if (s_vm_valid)
+	{
+		if (m_display_surface)
+			g_emu_thread->requestCenteredDisplaySize();
+	}
+	else
+	{
+		centerDisplayWindow();
+	}
+}
+
 void MainWindow::centerDisplayWindow()
 {
 #ifdef DISPLAY_SURFACE_WINDOW
-	if (!m_display_container)
+	if (m_display_surface && !m_display_container)
 	{
 		const QScreen* screen = m_display_surface->screen();
 		if (screen)
@@ -3372,7 +3385,7 @@ void MainWindow::centerDisplayWindow()
 		return;
 	}
 #else
-	if (!m_display_container->parent())
+	if (m_display_container && !m_display_container->parent())
 	{
 		const QScreen* screen = m_display_container->screen();
 		if (screen)
