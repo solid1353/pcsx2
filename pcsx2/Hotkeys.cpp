@@ -41,36 +41,13 @@ static void HotkeyAdjustTargetSpeed(double delta)
 		Host::OSD_QUICK_DURATION);
 }
 
-// Saves the mute choice so it survives relaunch, in the game settings when they already hold one, like the status
-// bar volume menu. Reapplying settings keeps the -mute override in force. Returns whether output is muted afterwards.
-static bool SetSavedOutputMuted(const bool muted)
-{
-	{
-		auto lock = Host::GetSettingsLock();
-		SettingsInterface* game_settings = Host::Internal::GetGameSettingsLayer();
-		if (game_settings && game_settings->ContainsValue("SPU2/Output", "OutputMuted"))
-		{
-			game_settings->SetBoolValue("SPU2/Output", "OutputMuted", muted);
-			game_settings->Save();
-		}
-		else
-		{
-			Host::Internal::GetBaseSettingsLayer()->SetBoolValue("SPU2/Output", "OutputMuted", muted);
-			Host::CommitBaseSettingChanges();
-		}
-	}
-
-	VMManager::ApplySettings();
-	return SPU2::IsOutputMuted();
-}
-
 static void HotkeyAdjustVolume(const s32 delta)
 {
 	if (!VMManager::HasValidVM())
 		return;
 
-	// Volume-adjusting hotkeys unmute.
-	if (SPU2::IsOutputMuted() && SetSavedOutputMuted(false))
+	// Volume-adjusting hotkeys override mute toggle hotkey. EmuConfig.SPU2.OutputMuted overrides hotkeys.
+	if (!SPU2::SetOutputMuted(false))
 	{
 		Host::AddIconOSDMessage("VolumeChanged", ICON_FA_VOLUME_XMARK, TRANSLATE_STR("Hotkeys_Volume", "Volume: Muted in Settings"));
 		return;
@@ -100,17 +77,20 @@ static void HotkeyToggleMute()
 	if (!VMManager::HasValidVM())
 		return;
 
-	const bool unmuting = SPU2::IsOutputMuted();
-	if (!SetSavedOutputMuted(!unmuting))
+	// Attempt to toggle output muting. EmuConfig.SPU2.OutputMuted overrides hotkeys.
+	if (SPU2::SetOutputMuted(!SPU2::IsOutputMuted()))
 	{
-		const u32 current_volume = SPU2::GetOutputVolume();
-		Host::AddIconOSDMessage("VolumeChanged", current_volume < 100 ? (current_volume == 0 ? ICON_FA_VOLUME_OFF : ICON_FA_VOLUME_LOW) : ICON_FA_VOLUME_HIGH,
-			fmt::format(TRANSLATE_FS("Hotkeys_Volume", "Volume: Unmuted to {}%"), current_volume));
+		if (SPU2::IsOutputMuted())
+			Host::AddIconOSDMessage("VolumeChanged", ICON_FA_VOLUME_XMARK, TRANSLATE_STR("Hotkeys_Volume", "Volume: Muted"));
+		else
+		{
+			const u32 current_volume = SPU2::GetOutputVolume();
+			Host::AddIconOSDMessage("VolumeChanged", current_volume < 100 ? (current_volume == 0 ? ICON_FA_VOLUME_OFF : ICON_FA_VOLUME_LOW) : ICON_FA_VOLUME_HIGH,
+				fmt::format(TRANSLATE_FS("Hotkeys_Volume", "Volume: Unmuted to {}%"), current_volume));
+		}
 	}
-	else if (unmuting)
-		Host::AddIconOSDMessage("VolumeChanged", ICON_FA_VOLUME_XMARK, TRANSLATE_STR("Hotkeys_Volume", "Volume: Muted in Settings"));
 	else
-		Host::AddIconOSDMessage("VolumeChanged", ICON_FA_VOLUME_XMARK, TRANSLATE_STR("Hotkeys_Volume", "Volume: Muted"));
+		Host::AddIconOSDMessage("VolumeChanged", ICON_FA_VOLUME_XMARK, TRANSLATE_STR("Hotkeys_Volume", "Volume: Muted in Settings"));
 }
 
 static void HotkeyLoadStateSlot(s32 slot)
@@ -365,19 +345,18 @@ DEFINE_HOTKEY_LOADSTATE_X(10, TRANSLATE_NOOP("Hotkeys", "Load State From Slot 10
 #undef DEFINE_HOTKEY_SAVESTATE_X
 #undef DEFINE_HOTKEY_LOADSTATE_X
 DEFINE_HOTKEY("Mute", TRANSLATE_NOOP("Hotkeys", "Audio"), TRANSLATE_NOOP("Hotkeys", "Toggle Mute"), [](s32 pressed) {
-	// Reapplies settings and thus binds, therefore must be deferred.
 	if (!pressed && VMManager::HasValidVM())
-		Host::RunOnCPUThread(HotkeyToggleMute);
+		HotkeyToggleMute();
 })
 DEFINE_HOTKEY("IncreaseVolume", TRANSLATE_NOOP("Hotkeys", "Audio"), TRANSLATE_NOOP("Hotkeys", "Increase Volume"),
 	[](s32 pressed) {
 		if (!pressed && VMManager::HasValidVM())
-			Host::RunOnCPUThread([]() { HotkeyAdjustVolume(5); });
+			HotkeyAdjustVolume(5);
 	})
 DEFINE_HOTKEY("DecreaseVolume", TRANSLATE_NOOP("Hotkeys", "Audio"), TRANSLATE_NOOP("Hotkeys", "Decrease Volume"),
 	[](s32 pressed) {
 		if (!pressed && VMManager::HasValidVM())
-			Host::RunOnCPUThread([]() { HotkeyAdjustVolume(-5); });
+			HotkeyAdjustVolume(-5);
 	})
 DEFINE_HOTKEY("ToggleMouseLock", TRANSLATE_NOOP("Hotkeys", "System"), TRANSLATE_NOOP("Hotkeys", "Toggle Mouse Lock"),
 	[](s32 pressed) {
