@@ -103,6 +103,7 @@ static bool s_start_big_picture_mode = false;
 static bool s_start_fullscreen = false;
 static bool s_center_display_window = false;
 static float s_center_display_window_aspect_ratio = 0.0f;
+static bool s_recenter_display_window_pending = false;
 static constexpr s32 CENTERED_DISPLAY_ASPECT_RATIO_HEIGHT = 10000;
 static bool s_test_config_and_exit = false;
 static bool s_run_setup_wizard = false;
@@ -1060,6 +1061,7 @@ void Host::RequestResizeHostDisplay(s32 width, s32 height)
 void Host::OnVMStarting()
 {
 	s_center_display_window_aspect_ratio = 0.0f;
+	s_recenter_display_window_pending = true;
 	g_emu_thread->stopBackgroundControllerPollTimer();
 	emit g_emu_thread->onVMStarting();
 }
@@ -1155,7 +1157,19 @@ void EmuThread::updatePerformanceMetrics(bool force)
 	int iwidth, iheight;
 	GSgetInternalResolution(&iwidth, &iheight);
 	const float present_aspect_ratio = GSGetPresentAspectRatio();
-	if (s_center_display_window && present_aspect_ratio > 0.0f &&
+	if (s_recenter_display_window_pending && present_aspect_ratio > 0.0f)
+	{
+		// Every boot recenters once, like the recenter hotkey, as soon as the presented aspect ratio is known.
+		s_recenter_display_window_pending = false;
+		if (!m_is_fullscreen)
+		{
+			s_center_display_window_aspect_ratio = present_aspect_ratio;
+			onResizeRenderWindowRequested(
+				static_cast<s32>(std::lround(present_aspect_ratio * CENTERED_DISPLAY_ASPECT_RATIO_HEIGHT)),
+				CENTERED_DISPLAY_ASPECT_RATIO_HEIGHT, true);
+		}
+	}
+	else if (s_center_display_window && present_aspect_ratio > 0.0f &&
 		std::abs(present_aspect_ratio - s_center_display_window_aspect_ratio) > 0.0005f)
 	{
 		s_center_display_window_aspect_ratio = present_aspect_ratio;

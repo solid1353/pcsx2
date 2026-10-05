@@ -18,6 +18,10 @@ Input recording options are described in
 | `-pine-port <port>` | Uses PINE slot `1024` through `65535` when PINE is enabled. |
 | `-centered-window` | Sizes the game window to the presented image without borders, fitted within a 1024×768 frame independent of display scaling, centers it on its screen, and suppresses starting fullscreen. The window follows later aspect-ratio changes. |
 
+Without `-centered-window`, every game boot outside fullscreen still sizes and
+centers the window once, like the **Recenter** hotkey, as soon as the
+presented aspect ratio is known.
+
 ## Speed
 
 `-turbo` and `-unlimited` keep their upstream meaning. The fork adds:
