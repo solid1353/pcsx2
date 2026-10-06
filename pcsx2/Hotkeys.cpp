@@ -72,27 +72,6 @@ static void HotkeyAdjustVolume(const s32 delta)
 	}
 }
 
-static void HotkeyToggleMute()
-{
-	if (!VMManager::HasValidVM())
-		return;
-
-	// Attempt to toggle output muting. EmuConfig.SPU2.OutputMuted overrides hotkeys.
-	if (SPU2::SetOutputMuted(!SPU2::IsOutputMuted()))
-	{
-		if (SPU2::IsOutputMuted())
-			Host::AddIconOSDMessage("VolumeChanged", ICON_FA_VOLUME_XMARK, TRANSLATE_STR("Hotkeys_Volume", "Volume: Muted"));
-		else
-		{
-			const u32 current_volume = SPU2::GetOutputVolume();
-			Host::AddIconOSDMessage("VolumeChanged", current_volume < 100 ? (current_volume == 0 ? ICON_FA_VOLUME_OFF : ICON_FA_VOLUME_LOW) : ICON_FA_VOLUME_HIGH,
-				fmt::format(TRANSLATE_FS("Hotkeys_Volume", "Volume: Unmuted to {}%"), current_volume));
-		}
-	}
-	else
-		Host::AddIconOSDMessage("VolumeChanged", ICON_FA_VOLUME_XMARK, TRANSLATE_STR("Hotkeys_Volume", "Volume: Muted in Settings"));
-}
-
 static void HotkeyLoadStateSlot(s32 slot)
 {
 	// Can reapply settings and thus binds, therefore must be deferred.
@@ -344,10 +323,6 @@ DEFINE_HOTKEY_SAVESTATE_X(10, TRANSLATE_NOOP("Hotkeys", "Save State To Slot 10")
 DEFINE_HOTKEY_LOADSTATE_X(10, TRANSLATE_NOOP("Hotkeys", "Load State From Slot 10"))
 #undef DEFINE_HOTKEY_SAVESTATE_X
 #undef DEFINE_HOTKEY_LOADSTATE_X
-DEFINE_HOTKEY("Mute", TRANSLATE_NOOP("Hotkeys", "Audio"), TRANSLATE_NOOP("Hotkeys", "Toggle Mute"), [](s32 pressed) {
-	if (!pressed && VMManager::HasValidVM())
-		HotkeyToggleMute();
-})
 DEFINE_HOTKEY("IncreaseVolume", TRANSLATE_NOOP("Hotkeys", "Audio"), TRANSLATE_NOOP("Hotkeys", "Increase Volume"),
 	[](s32 pressed) {
 		if (!pressed && VMManager::HasValidVM())

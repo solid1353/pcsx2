@@ -39,6 +39,8 @@
 #include "pcsx2/VMManager.h"
 #include "pcsx2/ImGui/ImGuiOverlays.h"
 #include "pcsx2/SPU2/spu2.h"
+
+#include "IconsFontAwesome.h"
 #include "pcsx2/Recording/InputRecording.h"
 #include "pcsx2/Recording/InputRecordingControls.h"
 #include "pcsx2/SaveState.h"
@@ -745,9 +747,9 @@ void MainWindow::setupStatusBarWidgets()
 	m_status_vps_widget->hide();
 }
 
-void MainWindow::applyStatusBarVolumeChanges(std::optional<int> volume, bool toggle_mute)
+void MainWindow::applyStatusBarVolumeChanges(std::optional<int> volume, bool toggle_mute, bool show_osd)
 {
-	Host::RunOnCPUThread([this, volume, toggle_mute]() {
+	Host::RunOnCPUThread([this, volume, toggle_mute, show_osd]() {
 		int target_vol = 100;
 		bool target_mute = false;
 
@@ -786,6 +788,15 @@ void MainWindow::applyStatusBarVolumeChanges(std::optional<int> volume, bool tog
 			EmuConfig.SPU2.OutputMuted = target_mute;
 			SPU2::SetOutputMuted(target_mute);
 			SPU2::SetOutputVolume(static_cast<u32>(target_vol));
+
+			if (show_osd)
+			{
+				if (target_mute)
+					Host::AddIconOSDMessage("VolumeChanged", ICON_FA_VOLUME_XMARK, TRANSLATE_STR("Hotkeys_Volume", "Volume: Muted"));
+				else
+					Host::AddIconOSDMessage("VolumeChanged", target_vol < 100 ? (target_vol == 0 ? ICON_FA_VOLUME_OFF : ICON_FA_VOLUME_LOW) : ICON_FA_VOLUME_HIGH,
+						fmt::format(TRANSLATE_FS("Hotkeys_Volume", "Volume: Unmuted to {}%"), target_vol));
+			}
 		}
 
 		QTimer::singleShot(0, this, [this, target_vol, target_mute]() { setStatusVolume(target_vol, target_mute); });
@@ -1579,6 +1590,11 @@ void MainWindow::setStatusRendererText(const QString& text)
 void MainWindow::setStatusResolutionText(const QString& text)
 {
 	m_status_resolution_widget->setText(text);
+}
+
+void MainWindow::toggleMute()
+{
+	applyStatusBarVolumeChanges(std::nullopt, true, true);
 }
 
 void MainWindow::setStatusVolume(int volume, bool muted)
