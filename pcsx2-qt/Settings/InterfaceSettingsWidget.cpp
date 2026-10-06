@@ -130,6 +130,7 @@ InterfaceSettingsWidget::InterfaceSettingsWidget(SettingsWindow* settings_dialog
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.renderToSeparateWindow, "UI", "RenderToSeparateWindow", false);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.hideMainWindow, "UI", "HideMainWindowWhenRunning", false);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.disableWindowResizing, "UI", "DisableWindowResize", false);
+	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.recenterGameWindow, "UI", "RecenterGameWindow", true);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.startFullscreenUI, "UI", "StartBigPictureMode", false);
 	connect(m_ui.renderToSeparateWindow, &QCheckBox::checkStateChanged, this, &InterfaceSettingsWidget::onRenderToSeparateWindowChanged);
 
@@ -227,6 +228,9 @@ InterfaceSettingsWidget::InterfaceSettingsWidget(SettingsWindow* settings_dialog
 	dialog()->registerWidgetHelp(
 		m_ui.disableWindowResizing, tr("Disable Window Resizing"), tr("Unchecked"),
 		tr("Prevents the main window from being resized."));
+	dialog()->registerWidgetHelp(
+		m_ui.recenterGameWindow, tr("Recenter Window On Aspect Change"), tr("Checked"),
+		tr("Sizes the game window to the game's image and centers it on its screen whenever a game starts or its aspect ratio changes, like the Recenter action. Has no effect in fullscreen."));
 	dialog()->registerWidgetHelp(
 		m_ui.startFullscreenUI, tr("Start In Big Picture Mode"), tr("Unchecked"),
 		tr("Automatically starts Big Picture Mode instead of the regular Qt interface when PCSX2 launches."));
