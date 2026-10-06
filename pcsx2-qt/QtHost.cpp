@@ -1172,7 +1172,8 @@ void EmuThread::updatePerformanceMetrics(bool force)
 		volume != m_last_volume || muted != m_last_muted || force)
 	{
 
-		if (volume != m_last_volume || muted != m_last_muted || force)
+		// Without a VM there is no output volume to show, and a 0 would reach the status bar slider and be saved from it.
+		if (VMManager::HasValidVM() && (volume != m_last_volume || muted != m_last_muted || force))
 		{
 			QString vol_text = tr("Volume: %1%").arg(volume);
 			if (muted)
