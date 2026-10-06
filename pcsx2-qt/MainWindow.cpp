@@ -676,6 +676,9 @@ void MainWindow::setupStatusBarWidgets()
 	m_status_volume_slider = new QSlider(Qt::Horizontal, m_status_volume_widget);
 	m_status_volume_slider->setRange(0, 100);
 	m_status_volume_slider->setFixedWidth(100);
+	QPalette volume_slider_palette = m_status_volume_slider->palette();
+	volume_slider_palette.setColor(QPalette::Highlight, QColor(128, 128, 128));
+	m_status_volume_slider->setPalette(volume_slider_palette);
 	m_status_volume_slider->setValue(Host::GetIntSettingValue("SPU2/Output", "StandardVolume", 100));
 	connect(m_status_volume_slider, &QSlider::valueChanged, this, [this](int value) {
 		// Dragging previews the volume and saves it on release; clicks, wheel and keys save at once.
