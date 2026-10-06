@@ -1156,8 +1156,9 @@ void EmuThread::updatePerformanceMetrics(bool force)
 	GSgetInternalResolution(&iwidth, &iheight);
 	const float present_aspect_ratio = GSGetPresentAspectRatio();
 	// Sizes and recenters the window, like the recenter hotkey, on every game start and later aspect-ratio change.
+	// Waits for a running VM, since settings are applied during boot before its window exists.
 	if ((s_center_display_window || Host::GetBaseBoolSettingValue("UI", "RecenterGameWindow", true)) &&
-		!m_is_fullscreen && present_aspect_ratio > 0.0f &&
+		VMManager::HasValidVM() && !m_is_fullscreen && present_aspect_ratio > 0.0f &&
 		std::abs(present_aspect_ratio - s_center_display_window_aspect_ratio) > 0.0005f)
 	{
 		s_center_display_window_aspect_ratio = present_aspect_ratio;
