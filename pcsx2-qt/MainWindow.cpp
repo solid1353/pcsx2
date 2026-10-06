@@ -657,78 +657,50 @@ void MainWindow::setupStatusBarWidgets()
 	m_status_resolution_widget->setFixedHeight(20);
 	m_status_resolution_widget->hide();
 
-	m_status_volume_widget = new QToolButton(m_ui.statusBar);
+	m_status_volume_widget = new QWidget(m_ui.statusBar);
 	m_status_volume_widget->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
 	m_status_volume_widget->setContentsMargins(10, 0, 10, 0);
-	m_status_volume_widget->setAutoRaise(true);
-	m_status_volume_widget->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-	m_status_volume_widget->setIcon(QIcon::fromTheme(QStringLiteral("volume-up-line")));
-	m_status_volume_widget->setPopupMode(QToolButton::InstantPopup);
 	m_status_volume_widget->setFixedHeight(20);
+	QHBoxLayout* volume_layout = new QHBoxLayout(m_status_volume_widget);
+	volume_layout->setContentsMargins(0, 0, 0, 0);
+	volume_layout->setSpacing(4);
 
-	m_status_volume_menu = new QMenu(m_status_volume_widget);
+	m_status_volume_mute_button = new QToolButton(m_status_volume_widget);
+	m_status_volume_mute_button->setAutoRaise(true);
+	m_status_volume_mute_button->setToolTip(tr("Toggle Mute"));
+	m_status_volume_mute_button->setIcon(QIcon::fromTheme(QStringLiteral("volume-up-line")));
+	m_status_volume_mute_button->setFixedHeight(20);
+	connect(m_status_volume_mute_button, &QToolButton::clicked, this, [this]() { applyStatusBarVolumeChanges(std::nullopt, true); });
+	volume_layout->addWidget(m_status_volume_mute_button);
 
-	m_status_volume_per_game_action = new QAction(tr("Adjust Per-Game"), m_status_volume_menu);
-	m_status_volume_per_game_action->setCheckable(true);
-
-	connect(m_status_volume_menu, &QMenu::aboutToShow, this, [this]() {
-		auto lock = Host::GetSettingsLock();
-		SettingsInterface* game_layer = Host::Internal::GetGameSettingsLayer();
-		m_status_volume_per_game_action->setEnabled(game_layer != nullptr && QtHost::IsVMValid());
-		m_status_volume_per_game_action->setChecked(game_layer &&
-													(game_layer->ContainsValue("SPU2/Output", "StandardVolume") || game_layer->ContainsValue("SPU2/Output", "OutputMuted")));
-	});
-
-	connect(m_status_volume_per_game_action, &QAction::triggered, this, [this](bool checked) {
-		m_status_volume_slider_applied = true;
-		applyStatusBarVolumeChanges(std::nullopt, false, checked);
-	});
-
-	m_status_volume_toggle_mute_action = new QAction(tr("Toggle Mute"), m_status_volume_menu);
-	m_status_volume_toggle_mute_action->setIcon(QIcon::fromTheme(QStringLiteral("volume-mute-line")));
-
-	connect(m_status_volume_toggle_mute_action, &QAction::triggered, this, [this]() {
-		m_status_volume_slider_applied = true;
-		applyStatusBarVolumeChanges(std::nullopt, true, std::nullopt);
-	});
-
-	m_status_volume_menu->addAction(m_status_volume_per_game_action);
-	m_status_volume_menu->addAction(m_status_volume_toggle_mute_action);
-	m_status_volume_menu->addSeparator();
-
-	m_status_volume_slider = new QSlider(Qt::Horizontal, m_status_volume_menu);
+	m_status_volume_slider = new QSlider(Qt::Horizontal, m_status_volume_widget);
 	m_status_volume_slider->setRange(0, 100);
-	m_status_volume_slider->setFixedWidth(120);
+	m_status_volume_slider->setFixedWidth(100);
 	m_status_volume_slider->setValue(Host::GetIntSettingValue("SPU2/Output", "StandardVolume", 100));
 	connect(m_status_volume_slider, &QSlider::valueChanged, this, [this](int value) {
+		// Dragging previews the volume and saves it on release; clicks, wheel and keys save at once.
+		if (!m_status_volume_slider->isSliderDown())
+		{
+			applyStatusBarVolumeChanges(value, false);
+			return;
+		}
+
 		Host::RunOnCPUThread([value]() {
 			if (!VMManager::HasValidVM())
 				return;
 			EmuConfig.SPU2.StandardVolume = static_cast<u32>(value);
 			SPU2::SetOutputVolume(static_cast<u32>(value));
 		});
-		if (m_status_volume_slider->isSliderDown())
-			setStatusVolumeText(m_status_volume_muted ? tr("Volume: Muted") : tr("Volume: %1%").arg(value), value, m_status_volume_muted);
+		if (!m_status_volume_muted)
+			m_status_volume_label->setText(tr("%1%").arg(value));
 	});
-	connect(m_status_volume_slider, &QSlider::sliderReleased, this, [this]() {
-		m_status_volume_slider_applied = true;
-		applyStatusBarVolumeChanges(m_status_volume_slider->value(), false);
-	});
-	connect(m_status_volume_menu, &QMenu::aboutToHide, this, [this]() {
-		if (!m_status_volume_slider_applied)
-			applyStatusBarVolumeChanges(m_status_volume_slider->value(), false);
-		m_status_volume_slider_applied = false;
-	});
+	connect(m_status_volume_slider, &QSlider::sliderReleased, this,
+		[this]() { applyStatusBarVolumeChanges(m_status_volume_slider->value(), false); });
+	volume_layout->addWidget(m_status_volume_slider);
 
-	QWidget* container = new QWidget(m_status_volume_menu);
-	QHBoxLayout* layout = new QHBoxLayout(container);
-	layout->setContentsMargins(8, 4, 8, 4);
-	layout->addWidget(m_status_volume_slider);
-
-	QWidgetAction* slider_action = new QWidgetAction(m_status_volume_menu);
-	slider_action->setDefaultWidget(container);
-	m_status_volume_menu->addAction(slider_action);
-	m_status_volume_widget->setMenu(m_status_volume_menu);
+	m_status_volume_label = new QLabel(m_status_volume_widget);
+	m_status_volume_label->setFixedHeight(20);
+	volume_layout->addWidget(m_status_volume_label);
 	m_status_volume_widget->hide();
 
 	m_status_speed_widget = new QToolButton(m_ui.statusBar);
@@ -770,10 +742,9 @@ void MainWindow::setupStatusBarWidgets()
 	m_status_vps_widget->hide();
 }
 
-void MainWindow::applyStatusBarVolumeChanges(std::optional<int> volume, bool toggle_mute, std::optional<bool> override_per_game)
+void MainWindow::applyStatusBarVolumeChanges(std::optional<int> volume, bool toggle_mute)
 {
-	const bool use_per_game = override_per_game.value_or(m_status_volume_per_game_action->isChecked());
-	Host::RunOnCPUThread([this, volume, toggle_mute, use_per_game]() {
+	Host::RunOnCPUThread([this, volume, toggle_mute]() {
 		int target_vol = 100;
 		bool target_mute = false;
 
@@ -781,42 +752,29 @@ void MainWindow::applyStatusBarVolumeChanges(std::optional<int> volume, bool tog
 			auto lock = Host::GetSettingsLock();
 			SettingsInterface* per_game_settings = Host::Internal::GetGameSettingsLayer();
 			SettingsInterface* global_settings = Host::Internal::GetBaseSettingsLayer();
-			SettingsInterface* active_setting = (use_per_game && per_game_settings) ? per_game_settings : global_settings;
 
-			if (active_setting)
-			{
-				if (!active_setting->GetIntValue("SPU2/Output", "StandardVolume", &target_vol) && global_settings)
-					global_settings->GetIntValue("SPU2/Output", "StandardVolume", &target_vol);
-				if (!active_setting->GetBoolValue("SPU2/Output", "OutputMuted", &target_mute) && global_settings)
-					global_settings->GetBoolValue("SPU2/Output", "OutputMuted", &target_mute);
-			}
+			global_settings->GetIntValue("SPU2/Output", "StandardVolume", &target_vol);
+			global_settings->GetBoolValue("SPU2/Output", "OutputMuted", &target_mute);
 
 			target_vol = volume.value_or(target_vol);
 			if (toggle_mute)
 				target_mute = !(VMManager::HasValidVM() ? SPU2::IsOutputMuted() : target_mute);
 
-			if (active_setting)
-			{
-				active_setting->SetIntValue("SPU2/Output", "StandardVolume", target_vol);
-				active_setting->SetBoolValue("SPU2/Output", "OutputMuted", target_mute);
-			}
+			global_settings->SetIntValue("SPU2/Output", "StandardVolume", target_vol);
+			global_settings->SetBoolValue("SPU2/Output", "OutputMuted", target_mute);
 
-			if (per_game_settings && active_setting == per_game_settings)
-				QtHost::SaveGameSettings(per_game_settings, true);
-			else
+			// The status bar adjusts the global volume, so per-game values must not override it.
+			if (per_game_settings)
 			{
-				if (per_game_settings)
-				{
-					const bool had_per_game_volume =
-						per_game_settings->ContainsValue("SPU2/Output", "StandardVolume") ||
-						per_game_settings->ContainsValue("SPU2/Output", "OutputMuted");
-					per_game_settings->DeleteValue("SPU2/Output", "StandardVolume");
-					per_game_settings->DeleteValue("SPU2/Output", "OutputMuted");
-					if (had_per_game_volume)
-						QtHost::SaveGameSettings(per_game_settings, true);
-				}
-				Host::CommitBaseSettingChanges();
+				const bool had_per_game_volume =
+					per_game_settings->ContainsValue("SPU2/Output", "StandardVolume") ||
+					per_game_settings->ContainsValue("SPU2/Output", "OutputMuted");
+				per_game_settings->DeleteValue("SPU2/Output", "StandardVolume");
+				per_game_settings->DeleteValue("SPU2/Output", "OutputMuted");
+				if (had_per_game_volume)
+					QtHost::SaveGameSettings(per_game_settings, true);
 			}
+			Host::CommitBaseSettingChanges();
 		}
 
 		if (VMManager::HasValidVM())
@@ -827,9 +785,7 @@ void MainWindow::applyStatusBarVolumeChanges(std::optional<int> volume, bool tog
 			SPU2::SetOutputVolume(static_cast<u32>(target_vol));
 		}
 
-		QTimer::singleShot(0, this, [this, target_vol, target_mute]() {
-			setStatusVolumeText(target_mute ? tr("Volume: Muted") : tr("Volume: %1%").arg(target_vol), target_vol, target_mute);
-		});
+		QTimer::singleShot(0, this, [this, target_vol, target_mute]() { setStatusVolume(target_vol, target_mute); });
 	});
 }
 
@@ -1622,21 +1578,18 @@ void MainWindow::setStatusResolutionText(const QString& text)
 	m_status_resolution_widget->setText(text);
 }
 
-void MainWindow::setStatusVolumeText(const QString& text, int volume, bool muted)
+void MainWindow::setStatusVolume(int volume, bool muted)
 {
-	m_status_volume_widget->setText(text);
-	if (muted != m_status_volume_muted)
-	{
-		m_status_volume_muted = muted;
-		m_status_volume_widget->setIcon(QIcon::fromTheme(muted ? QStringLiteral("volume-mute-line") : QStringLiteral("volume-up-line")));
-		m_status_volume_toggle_mute_action->setIcon(QIcon::fromTheme(muted ? QStringLiteral("volume-up-line") : QStringLiteral("volume-mute-line")));
-	}
+	m_status_volume_muted = muted;
+	m_status_volume_mute_button->setIcon(QIcon::fromTheme(muted ? QStringLiteral("volume-mute-line") : QStringLiteral("volume-up-line")));
 
 	if (!muted && !m_status_volume_slider->isSliderDown())
 	{
 		QSignalBlocker blocker(m_status_volume_slider);
 		m_status_volume_slider->setValue(volume);
 	}
+
+	m_status_volume_label->setText(muted ? tr("Muted") : tr("%1%").arg(m_status_volume_slider->value()));
 }
 
 void MainWindow::setStatusGPUText(const QString& text)
@@ -2858,7 +2811,7 @@ void MainWindow::onVMStopped()
 	m_last_fps_status = empty_string;
 	m_status_renderer_widget->setText(empty_string);
 	m_status_resolution_widget->setText(empty_string);
-	m_status_volume_widget->setText(empty_string);
+	m_status_volume_label->setText(empty_string);
 	m_status_gpu_widget->setText(empty_string);
 	m_status_fps_widget->setText(empty_string);
 	m_status_vps_widget->setText(empty_string);

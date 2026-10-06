@@ -103,7 +103,6 @@ public:
 	/// Accessors for the status bar widgets, updated by the emulation thread.
 	__fi QLabel* getStatusVerboseWidget() const { return m_status_verbose_widget; }
 	__fi QToolButton* getStatusSpeedWidget() const { return m_status_speed_widget; }
-	__fi QToolButton* getStatusVolumeWidget() const { return m_status_volume_widget; }
 	__fi QLabel* getStatusRendererWidget() const { return m_status_renderer_widget; }
 	__fi QLabel* getStatusResolutionWidget() const { return m_status_resolution_widget; }
 	__fi QLabel* getStatusGPUWidget() const { return m_status_gpu_widget; }
@@ -136,7 +135,7 @@ public Q_SLOTS:
 	void setStatusVerboseText(const QString& text);
 	void setStatusRendererText(const QString& text);
 	void setStatusResolutionText(const QString& text);
-	void setStatusVolumeText(const QString& text, int volume, bool muted);
+	void setStatusVolume(int volume, bool muted);
 	void setStatusGPUText(const QString& text);
 	void setStatusFPSText(const QString& text);
 	void setStatusVPSText(const QString& text);
@@ -259,7 +258,7 @@ private:
 	void updateToolbarDropIndicator(const QPoint& position, QAction* dragged_action);
 	void rebuildToolbar();
 	void setupStatusBarWidgets();
-	void applyStatusBarVolumeChanges(std::optional<int> volume, bool toggle_mute, std::optional<bool> override_per_game = std::nullopt);
+	void applyStatusBarVolumeChanges(std::optional<int> volume, bool toggle_mute);
 	void connectSignals();
 	void createRendererSwitchMenu();
 	void recreate();
@@ -344,11 +343,10 @@ private:
 	QProgressBar* m_status_progress_widget = nullptr;
 	QLabel* m_status_verbose_widget = nullptr;
 	QLabel* m_status_renderer_widget = nullptr;
-	QToolButton* m_status_volume_widget = nullptr;
-	QMenu* m_status_volume_menu = nullptr;
-	QAction* m_status_volume_per_game_action = nullptr;
-	QAction* m_status_volume_toggle_mute_action = nullptr;
+	QWidget* m_status_volume_widget = nullptr;
+	QToolButton* m_status_volume_mute_button = nullptr;
 	QSlider* m_status_volume_slider = nullptr;
+	QLabel* m_status_volume_label = nullptr;
 	QLabel* m_status_gpu_widget = nullptr;
 	QLabel* m_status_fps_widget = nullptr;
 	QLabel* m_status_vps_widget = nullptr;
@@ -366,7 +364,6 @@ private:
 
 	bool m_display_created = false;
 	bool m_status_volume_muted = false;
-	bool m_status_volume_slider_applied = false;
 	bool m_display_is_exclusive_fullscreen = false;
 	bool m_relative_mouse_mode = false;
 	bool m_hide_mouse_cursor = false;
