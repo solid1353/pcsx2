@@ -1175,11 +1175,8 @@ void EmuThread::updatePerformanceMetrics(bool force)
 		// Without a VM there is no output volume to show, and a 0 would reach the status bar slider and be saved from it.
 		if (VMManager::HasValidVM() && (volume != m_last_volume || muted != m_last_muted || force))
 		{
-			QString vol_text = tr("Volume: %1%").arg(volume);
-			if (muted)
-				vol_text = tr("Volume: Muted");
-			QMetaObject::invokeMethod(g_main_window, "setStatusVolumeText", Qt::QueuedConnection,
-				Q_ARG(const QString&, vol_text), Q_ARG(int, static_cast<int>(volume)), Q_ARG(bool, muted));
+			QMetaObject::invokeMethod(g_main_window, "setStatusVolume", Qt::QueuedConnection,
+				Q_ARG(int, static_cast<int>(volume)), Q_ARG(bool, muted));
 			m_last_volume = volume;
 			m_last_muted = muted;
 		}
