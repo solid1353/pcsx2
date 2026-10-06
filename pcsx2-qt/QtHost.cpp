@@ -2204,6 +2204,11 @@ DEFINE_HOTKEY("RecenterDisplay", TRANSLATE_NOOP("Hotkeys", "Navigation"), TRANSL
 		if (pressed == 0 && g_emu_thread && !g_emu_thread->isFullscreen())
 			QMetaObject::invokeMethod(g_main_window, "recenterWindow", Qt::QueuedConnection);
 	})
+DEFINE_HOTKEY("Mute", TRANSLATE_NOOP("Hotkeys", "Audio"), TRANSLATE_NOOP("Hotkeys", "Toggle Mute"), [](s32 pressed) {
+	// Mutes like the status bar mute button, so the choice is saved.
+	if (!pressed && VMManager::HasValidVM())
+		QMetaObject::invokeMethod(g_main_window, "toggleMute", Qt::QueuedConnection);
+})
 END_HOTKEY_LIST()
 
 
