@@ -17,6 +17,7 @@ Input recording options are described in
 | `-read-only-settings` | Prevents every settings INI write. |
 | `-pine-port <port>` | Uses PINE slot `1024` through `65535` when PINE is enabled. |
 | `-centered-window` | Sizes the game window to the presented image without borders, fitted within a 1024×768 frame independent of display scaling, centers it on its screen, and suppresses starting fullscreen. The window follows later aspect-ratio changes. |
+| `-no-recenter` | Turns off the **Recenter Window On Aspect Change** setting for the run, so the window keeps the position it is given. `-centered-window` still applies. |
 
 Without `-centered-window`, the **Recenter Window On Aspect Change** interface
 setting (`RecenterGameWindow` in `[UI]`, on by default) gives every game the
