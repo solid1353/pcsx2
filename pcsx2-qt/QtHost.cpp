@@ -102,6 +102,7 @@ static bool s_pine_port_overridden = false;
 static bool s_start_big_picture_mode = false;
 static bool s_start_fullscreen = false;
 static bool s_center_display_window = false;
+static bool s_no_recenter = false;
 static float s_center_display_window_aspect_ratio = 0.0f;
 static constexpr s32 CENTERED_DISPLAY_ASPECT_RATIO_HEIGHT = 10000;
 static bool s_test_config_and_exit = false;
@@ -1157,7 +1158,7 @@ void EmuThread::updatePerformanceMetrics(bool force)
 	const float present_aspect_ratio = GSGetPresentAspectRatio();
 	// Sizes and recenters the window, like the recenter hotkey, on every game start and later aspect-ratio change.
 	// Waits for a running VM, since settings are applied during boot before its window exists.
-	if ((s_center_display_window || Host::GetBaseBoolSettingValue("UI", "RecenterGameWindow", true)) &&
+	if ((s_center_display_window || (!s_no_recenter && Host::GetBaseBoolSettingValue("UI", "RecenterGameWindow", true))) &&
 		VMManager::HasValidVM() && !m_is_fullscreen && present_aspect_ratio > 0.0f &&
 		std::abs(present_aspect_ratio - s_center_display_window_aspect_ratio) > 0.0005f)
 	{
@@ -2321,6 +2322,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -fullscreen: Enters fullscreen mode immediately after starting.\n");
 	std::fprintf(stderr, "  -nofullscreen: Prevents fullscreen mode from triggering if enabled.\n");
 	std::fprintf(stderr, "  -centered-window: Fits the window to the presented game image without borders and centers it at approximately 1024x768, independent of display scaling.\n");
+	std::fprintf(stderr, "  -no-recenter: Does not recenter the window on game start or aspect-ratio change, whatever the Recenter Window On Aspect Change setting says.\n");
 	std::fprintf(stderr, "  -bigpicture: Forces PCSX2 to use the Big Picture mode (useful for controller-only and couch play).\n");
 	std::fprintf(stderr, "  -earlyconsolelog: Forces logging of early console messages to console.\n");
 	std::fprintf(stderr, "  -testconfig: Initializes configuration and checks version, then exits.\n");
@@ -2633,6 +2635,11 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 			else if (CHECK_ARG(QStringLiteral("-centered-window")))
 			{
 				s_center_display_window = true;
+				continue;
+			}
+			else if (CHECK_ARG(QStringLiteral("-no-recenter")))
+			{
+				s_no_recenter = true;
 				continue;
 			}
 			else if (CHECK_ARG(QStringLiteral("-earlyconsolelog")))
