@@ -252,6 +252,7 @@ void EmuThread::startVM(std::shared_ptr<VMBootParameters> boot_params)
 			 Host::GetBaseBoolSettingValue("Framerate", "StartInUnlimitedMode", false))
 	{
 		boot_params->start_unlimited = true;
+		boot_params->unlimited_on_reset = true;
 	}
 
 	// Determine whether to start fullscreen or not.
