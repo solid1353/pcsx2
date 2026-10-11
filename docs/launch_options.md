@@ -38,7 +38,8 @@ A timed mode returns to Normal only if the speed is still that mode. Timed
 and frame-counted options cannot be combined with each other or with
 `-unlimited`, and the timed options cannot be combined with `-turbo`. When no
 speed option is given, the **Start Games in Unlimited Mode** setting
-(`StartInUnlimitedMode` in `[Framerate]`) starts games in Unlimited.
+(`StartInUnlimitedMode` in `[Framerate]`) starts games in Unlimited, and a VM
+reset switches back to Unlimited.
 
 ## Memory cards
 

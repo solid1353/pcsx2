@@ -195,6 +195,7 @@ static constexpr double FRAME_ADVANCE_HOLD_DELAY_MS = 300.0;
 static u64 s_unlimited_frame_count = 0;
 static u64 s_unlimited_frames_remaining = 0;
 static LimiterModeType s_unlimited_frame_fallback_mode = LimiterModeType::Nominal;
+static bool s_unlimited_on_reset = false;
 static bool s_fast_boot_requested = false;
 static bool s_gs_open_on_initialize = false;
 static bool s_thread_affinities_set = false;
@@ -1675,6 +1676,7 @@ VMBootResult VMManager::Initialize(const VMBootParameters& boot_params, Error* e
 	s_unlimited_frame_count = boot_params.start_unlimited_frame_count.value_or(0);
 	s_unlimited_frames_remaining = s_unlimited_frame_count;
 	s_unlimited_frame_fallback_mode = boot_params.unlimited_frame_fallback_mode;
+	s_unlimited_on_reset = boot_params.unlimited_on_reset;
 
 	s_target_speed = GetTargetSpeedForLimiterMode(s_limiter_mode);
 	s_use_vsync_for_timing = false;
@@ -1984,6 +1986,10 @@ void VMManager::Reset()
 	if (s_unlimited_frame_count > 0)
 	{
 		s_unlimited_frames_remaining = s_unlimited_frame_count;
+		SetLimiterMode(LimiterModeType::Unlimited);
+	}
+	else if (s_unlimited_on_reset)
+	{
 		SetLimiterMode(LimiterModeType::Unlimited);
 	}
 
