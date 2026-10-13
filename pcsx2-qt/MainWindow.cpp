@@ -3770,6 +3770,8 @@ void MainWindow::doControllerSettings(ControllerSettingsWindow::Category categor
 
 	if (!m_controller_settings_window->isVisible())
 	{
+		if (s_vm_valid)
+			m_controller_settings_window->selectActiveProfile();
 		m_controller_settings_window->show();
 	}
 	else
