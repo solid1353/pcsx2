@@ -586,6 +586,13 @@ void ControllerSettingsWindow::refreshProfileList()
 	}
 }
 
+void ControllerSettingsWindow::selectActiveProfile()
+{
+	const QString name = QString::fromStdString(VMManager::GetInputProfileName());
+	if (name != m_profile_name)
+		switchProfile(name);
+}
+
 void ControllerSettingsWindow::switchProfile(const QString& name)
 {
 	QSignalBlocker sb(m_ui.currentProfile);

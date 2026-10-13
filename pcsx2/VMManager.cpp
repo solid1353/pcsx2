@@ -983,6 +983,12 @@ std::string VMManager::GetDiscOverrideFromGameSettings(const std::string& elf_pa
 	return iso_path;
 }
 
+std::string VMManager::GetInputProfileName()
+{
+	auto lock = Host::GetSettingsLock();
+	return s_input_profile_name;
+}
+
 std::string VMManager::GetInputProfilePath(const std::string_view name)
 {
 	return Path::Combine(EmuFolders::InputProfiles, fmt::format("{}.ini", name));
