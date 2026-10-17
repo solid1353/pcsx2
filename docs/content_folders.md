@@ -43,8 +43,8 @@ created in the primary folder. Renaming keeps a card in its folder.
 
 ```ini
 [ContentAliases]
-SLES-55605_C071D4C1 = NUN5
-SLES-55605 = NUN5_Fallback
+SLES-55605_C071D4C1 = UN5
+SLES-55605 = UN5_Fallback
 ```
 
 A key is either `<serial>_<CRC>` or a serial alone. Lookups are
