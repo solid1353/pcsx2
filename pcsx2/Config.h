@@ -1436,7 +1436,6 @@ namespace EmuFolders
 	extern std::string InputRecordings;
 	extern std::vector<std::string> AdditionalContentFolders;
 	extern std::vector<std::pair<std::string, std::string>> ContentAliases;
-	extern std::vector<std::pair<std::string, std::string>> ContentAliasIdentities;
 	extern std::string Videos;
 	extern std::string DebuggerLayouts;
 	extern std::string DebuggerSettings;
