@@ -1018,7 +1018,6 @@ void VMManager::Internal::UpdateEmuFolders()
 	const std::string old_game_settings_directory(EmuFolders::GameSettings);
 	const std::vector<std::string> old_additional_content_folders(EmuFolders::AdditionalContentFolders);
 	const std::vector<std::pair<std::string, std::string>> old_content_aliases(EmuFolders::ContentAliases);
-	const std::vector<std::pair<std::string, std::string>> old_content_alias_identities(EmuFolders::ContentAliasIdentities);
 	const std::string old_memcards_directory(EmuFolders::MemoryCards);
 	const std::string old_textures_directory(EmuFolders::Textures);
 	const std::string old_videos_directory(EmuFolders::Videos);
@@ -1032,8 +1031,7 @@ void VMManager::Internal::UpdateEmuFolders()
 	{
 		const bool additional_content_folders_changed =
 			EmuFolders::AdditionalContentFolders != old_additional_content_folders;
-		const bool content_aliases_changed = EmuFolders::ContentAliases != old_content_aliases ||
-		                                     EmuFolders::ContentAliasIdentities != old_content_alias_identities;
+		const bool content_aliases_changed = EmuFolders::ContentAliases != old_content_aliases;
 		const bool game_settings_folders_changed =
 			EmuFolders::GameSettings != old_game_settings_directory || additional_content_folders_changed || content_aliases_changed;
 		if (game_settings_folders_changed)

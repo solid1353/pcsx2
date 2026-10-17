@@ -67,21 +67,15 @@ For an aliased game, the bundle file replaces the folder search: a missing
 automatic cheat file. Game patch files and the GameDB still use the detected
 serial.
 
-### Canonical local identity
+### Local identity
 
-`[ContentAliasIdentity]` maps a registered alias to a serial:
-
-```ini
-[ContentAliasIdentity]
-NA228 = SLOP-NA228
-```
-
-Every game resolved to that alias then uses the identity serial for savestate
-names (`<identity> (<CRC>).<slot>`), debugger settings
-(`<identity>_<CRC>.json`), playtime, and the title shown in the game list and
-at boot. The title is the GameDB name for the identity serial, or the file
-name when the GameDB has no entry; a custom title still takes precedence. The
-detected serial and CRC remain in use for GameDB settings and patches,
+A game matched by a serial key alone is identified by its alias; a game matched
+by a serial-and-CRC key, or by no key, keeps its detected serial. The identity
+names savestates (`<identity> (<CRC>).<slot>`) and debugger settings
+(`<identity>_<CRC>.json`), keys playtime, and selects the title shown in the
+game list and at boot. The title is the GameDB name for the identity, or the
+file name when the GameDB has no entry; a custom title still takes precedence.
+The detected serial and CRC remain in use for GameDB settings and patches,
 memory-card filters, and achievements, and savestate names keep the detected
 CRC.
 
@@ -89,5 +83,5 @@ CRC.
 
 `tests/ctest/core/patch_tests.cpp` covers ordered cheat discovery across
 content folders, alias resolution for cheats, game settings, and memory cards,
-refusal of duplicate bundles, game settings lookup across folders, and memory
+local identity, refusal of duplicate bundles, game settings lookup across folders, and memory
 card management across folders.

@@ -267,6 +267,9 @@ TEST(Patch, ResolvesCheatsAndGameSettingsByConfiguredContentAlias)
 	EXPECT_EQ(EmuFolders::GetContentAlias("sles-55605", 0xC071D4C1), "UN5");
 	EXPECT_EQ(EmuFolders::GetContentAlias("SLES-55605", 0x12345678), "UN5_Fallback");
 	EXPECT_TRUE(EmuFolders::GetContentAlias("SLUS-INVALID", 0).empty());
+	EXPECT_EQ(EmuFolders::GetContentIdentitySerial("SLES-55605", 0xC071D4C1), "SLES-55605");
+	EXPECT_EQ(EmuFolders::GetContentIdentitySerial("SLES-55605", 0x12345678), "UN5_Fallback");
+	EXPECT_EQ(EmuFolders::GetContentIdentitySerial("SLUS-INVALID", 0), "SLUS-INVALID");
 
 	const std::filesystem::path alias_cheat = nested_directory / "UN5.pnach";
 	const std::filesystem::path serial_cheat = primary_directory / "SLES-55605_C071D4C1.pnach";

@@ -171,7 +171,6 @@ namespace EmuFolders
 	std::string InputRecordings;
 	std::vector<std::string> AdditionalContentFolders;
 	std::vector<std::pair<std::string, std::string>> ContentAliases;
-	std::vector<std::pair<std::string, std::string>> ContentAliasIdentities;
 	std::string Videos;
 
 	static bool ShouldUsePortableMode();
@@ -2320,38 +2319,21 @@ void EmuFolders::LoadContentAliases(SettingsInterface& si)
 		}
 		ContentAliases.push_back(std::move(entry));
 	}
-
-	ContentAliasIdentities.clear();
-	for (std::pair<std::string, std::string> entry : si.GetKeyValueList("ContentAliasIdentity"))
-	{
-		StringUtil::StripWhitespace(&entry.first);
-		StringUtil::StripWhitespace(&entry.second);
-		if (entry.first.empty() || entry.second.empty())
-			continue;
-		if (!IsContentAlias(entry.first))
-		{
-			Console.Warning("Ignoring identity '%s' for unregistered content alias '%s'.", entry.second.c_str(), entry.first.c_str());
-			continue;
-		}
-		if (Path::SanitizeFileName(entry.second) != entry.second)
-		{
-			Console.Warning("Ignoring invalid identity '%s' for content alias '%s'.", entry.second.c_str(), entry.first.c_str());
-			continue;
-		}
-		ContentAliasIdentities.push_back(std::move(entry));
-	}
 }
 
-std::string EmuFolders::GetContentAlias(const std::string_view serial, const u32 crc)
+// Returns the alias for a serial and CRC, preferring a serial-and-CRC key over a serial key, and whether the
+// serial-and-CRC key matched.
+static std::string FindContentAlias(const std::string_view serial, const u32 crc, bool* crc_matched)
 {
+	*crc_matched = false;
 	if (serial.empty())
 		return {};
 
-	const auto find_alias = [](const std::string_view identity) -> std::string {
-		const std::string identity_string(identity);
-		for (auto it = ContentAliases.rbegin(); it != ContentAliases.rend(); ++it)
+	const auto find_alias = [](const std::string_view key) -> std::string {
+		const std::string key_string(key);
+		for (auto it = EmuFolders::ContentAliases.rbegin(); it != EmuFolders::ContentAliases.rend(); ++it)
 		{
-			if (StringUtil::Strcasecmp(it->first.c_str(), identity_string.c_str()) == 0)
+			if (StringUtil::Strcasecmp(it->first.c_str(), key_string.c_str()) == 0)
 				return it->second;
 		}
 		return {};
@@ -2359,22 +2341,27 @@ std::string EmuFolders::GetContentAlias(const std::string_view serial, const u32
 	if (crc != 0)
 	{
 		if (std::string alias = find_alias(fmt::format("{}_{:08X}", serial, crc)); !alias.empty())
+		{
+			*crc_matched = true;
 			return alias;
+		}
 	}
 	return find_alias(serial);
 }
 
+std::string EmuFolders::GetContentAlias(const std::string_view serial, const u32 crc)
+{
+	bool crc_matched;
+	return FindContentAlias(serial, crc, &crc_matched);
+}
+
 std::string EmuFolders::GetContentIdentitySerial(const std::string_view serial, const u32 crc)
 {
-	const std::string alias = GetContentAlias(serial, crc);
-	if (!alias.empty())
-	{
-		for (auto it = ContentAliasIdentities.rbegin(); it != ContentAliasIdentities.rend(); ++it)
-		{
-			if (StringUtil::Strcasecmp(it->first.c_str(), alias.c_str()) == 0)
-				return it->second;
-		}
-	}
+	// An image matched by its serial alone is identified by the alias; a serial-and-CRC match keeps its serial.
+	bool crc_matched;
+	std::string alias = FindContentAlias(serial, crc, &crc_matched);
+	if (!alias.empty() && !crc_matched)
+		return alias;
 
 	return std::string(serial);
 }
