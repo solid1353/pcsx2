@@ -66,6 +66,8 @@ GSRenderer::~GSRenderer() = default;
 
 void GSRenderer::Reset(bool hardware_reset)
 {
+	m_savestate_dumps.clear();
+
 	// Clear the current display texture.
 	if (hardware_reset)
 		g_gs_device->ClearCurrent();
@@ -717,10 +719,21 @@ void GSRenderer::VSync(u32 field, bool registers_written, bool idle_frame)
 		PerformanceMetrics::Update(registers_written, fb_sprite_frame, false);
 	}
 
+	// Savestate captures run independently so overlapping saves and hotkey dumps are preserved.
+	std::erase_if(m_savestate_dumps, [this, field](SavestateGSDump& capture) {
+		const bool done = capture.dump->VSync(field, false, m_regs);
+		if (--capture.frames_remaining == 0)
+		{
+			capture.dump->Complete();
+			return true;
+		}
+		return done;
+	});
+
 	// snapshot
 	if (!m_snapshot.empty())
 	{
-		u32 screenshot_width, screenshot_height;
+		u32 screenshot_width = 0, screenshot_height = 0;
 		std::vector<u32> screenshot_pixels;
 
 		if (GSConfig.LinearPresent == GSPostBilinearMode::BilinearSharp)
@@ -868,6 +881,26 @@ void GSRenderer::QueueSnapshot(const std::string& path, const u32 gsdump_frames)
 
 	// this is really gross, but wx we get the snapshot request after shift...
 	m_dump_frames = gsdump_frames;
+}
+
+void GSRenderer::QueueSavestateGSDump(std::function<void(std::vector<u8>)> data_callback)
+{
+	if (GSConfig.UserHacks_ReadTCOnClose)
+		ReadbackTextureCache();
+
+	freezeData fd = {0, nullptr};
+	Freeze(&fd, true);
+	std::vector<u8> state(fd.size);
+	fd.data = state.data();
+	Freeze(&fd, false);
+
+	u32 screenshot_width = 0, screenshot_height = 0;
+	std::vector<u32> screenshot_pixels;
+	SaveSnapshotToMemory(640, 480, true, false, &screenshot_width, &screenshot_height, &screenshot_pixels);
+	// Buffer compressed output until all four frames complete; this needs proper testing during replay.
+	m_savestate_dumps.push_back({GSDumpBase::CreateZstDump("GS", VMManager::GetDiscSerial(),
+		VMManager::GetDiscCRC(), screenshot_width, screenshot_height,
+		screenshot_pixels.empty() ? nullptr : screenshot_pixels.data(), fd, m_regs, std::move(data_callback))});
 }
 
 static std::string GSGetBaseFilename()

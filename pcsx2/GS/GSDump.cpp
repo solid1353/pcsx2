@@ -16,20 +16,30 @@
 #include <XzEnc.h>
 #include <zstd.h>
 
-GSDumpBase::GSDumpBase(std::string fn)
-	: m_filename(std::move(fn))
+GSDumpBase::GSDumpBase(std::string fn, DataCallback data_callback)
+	: m_gs(nullptr)
+	, m_filename(std::move(fn))
 	, m_frames(0)
 	, m_extra_frames(2)
+	, m_data_callback(std::move(data_callback))
 {
-	m_gs = FileSystem::OpenCFile(m_filename.c_str(), "wb");
-	if (!m_gs)
-		Console.ErrorFmt("GSDump: Error failed to open {}", m_filename);
+	if (!m_data_callback)
+	{
+		m_gs = FileSystem::OpenCFile(m_filename.c_str(), "wb");
+		if (!m_gs)
+		{
+			SetError();
+			Console.ErrorFmt("GSDump: Error failed to open {}", m_filename);
+		}
+	}
 }
 
 GSDumpBase::~GSDumpBase()
 {
 	if (m_gs)
 		std::fclose(m_gs);
+	else if (m_data_callback && m_completed && !m_failed)
+		m_data_callback(std::move(m_data));
 }
 
 void GSDumpBase::AddHeader(const std::string& serial, u32 crc,
@@ -91,7 +101,7 @@ void GSDumpBase::ReadFIFO(u32 size)
 bool GSDumpBase::VSync(int field, bool last, const GSPrivRegSet* regs)
 {
 	// dump file is bad, return done to delete the object
-	if (!m_gs)
+	if (m_failed)
 		return true;
 
 	AppendRawData(3);
@@ -108,12 +118,22 @@ bool GSDumpBase::VSync(int field, bool last, const GSPrivRegSet* regs)
 
 void GSDumpBase::Write(const void* data, size_t size)
 {
-	if (!m_gs || size == 0)
+	if (m_failed || size == 0)
 		return;
+
+	if (m_data_callback)
+	{
+		const u8* bytes = static_cast<const u8*>(data);
+		m_data.insert(m_data.end(), bytes, bytes + size);
+		return;
+	}
 
 	size_t written = fwrite(data, 1, size, m_gs);
 	if (written != size)
+	{
+		SetError();
 		Console.Error("GSDump: Error failed to write data");
+	}
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -326,19 +346,28 @@ namespace
 	public:
 		GSDumpZst(const std::string& fn, const std::string& serial, u32 crc,
 			u32 screenshot_width, u32 screenshot_height, const u32* screenshot_pixels,
-			const freezeData& fd, const GSPrivRegSet* regs);
+			const freezeData& fd, const GSPrivRegSet* regs, std::function<void(std::vector<u8>)> data_callback);
 		virtual ~GSDumpZst();
 	};
 
 	GSDumpZst::GSDumpZst(const std::string& fn, const std::string& serial, u32 crc,
 		u32 screenshot_width, u32 screenshot_height, const u32* screenshot_pixels,
-		const freezeData& fd, const GSPrivRegSet* regs)
-		: GSDumpBase(fn + ".gs.zst")
+		const freezeData& fd, const GSPrivRegSet* regs, std::function<void(std::vector<u8>)> data_callback)
+		: GSDumpBase(fn + ".gs.zst", std::move(data_callback))
 	{
 		m_strm = ZSTD_createCStream();
+		if (!m_strm)
+		{
+			SetError();
+			return;
+		}
 
 		// Compression level 6 provides a good balance between speed and ratio.
-		ZSTD_CCtx_setParameter(m_strm, ZSTD_c_compressionLevel, 6);
+		if (ZSTD_isError(ZSTD_CCtx_setParameter(m_strm, ZSTD_c_compressionLevel, 6)))
+		{
+			SetError();
+			return;
+		}
 
 		m_in_buff.reserve(_1mb);
 		m_out_buff.resize(_1mb);
@@ -356,6 +385,9 @@ namespace
 
 	void GSDumpZst::AppendRawData(const void* data, size_t size)
 	{
+		if (HasError())
+			return;
+
 		size_t old_size = m_in_buff.size();
 		m_in_buff.resize(old_size + size);
 		memcpy(&m_in_buff[old_size], data, size);
@@ -364,6 +396,9 @@ namespace
 
 	void GSDumpZst::AppendRawData(u8 c)
 	{
+		if (HasError())
+			return;
+
 		m_in_buff.push_back(c);
 		MayFlush();
 	}
@@ -376,7 +411,7 @@ namespace
 
 	void GSDumpZst::Compress(ZSTD_EndDirective action)
 	{
-		if (m_in_buff.empty())
+		if (HasError() || (m_in_buff.empty() && action != ZSTD_e_end))
 			return;
 
 		ZSTD_inBuffer inbuf = {m_in_buff.data(), m_in_buff.size(), 0};
@@ -388,6 +423,7 @@ namespace
 			const size_t remaining = ZSTD_compressStream2(m_strm, &outbuf, &inbuf, action);
 			if (ZSTD_isError(remaining))
 			{
+				SetError();
 				Console.ErrorFmt("GSDumpZstd: Error {}", ZSTD_getErrorName(remaining));
 				return;
 			}
@@ -419,9 +455,9 @@ namespace
 std::unique_ptr<GSDumpBase> GSDumpBase::CreateZstDump(
 	const std::string& fn, const std::string& serial, u32 crc,
 	u32 screenshot_width, u32 screenshot_height, const u32* screenshot_pixels,
-	const freezeData& fd, const GSPrivRegSet* regs)
+	const freezeData& fd, const GSPrivRegSet* regs, DataCallback data_callback)
 {
 	return std::make_unique<GSDumpZst>(fn, serial, crc,
 		screenshot_width, screenshot_height, screenshot_pixels,
-		fd, regs);
+		fd, regs, std::move(data_callback));
 }

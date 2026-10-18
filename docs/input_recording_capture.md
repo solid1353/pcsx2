@@ -68,8 +68,25 @@ as the savestate's `Screenshot.png`. If the memory card is busy, the savestate
 is skipped and logged, but a `full` capture still writes its PNG. Screenshots
 use the savestate screenshot encoder and size.
 
+When a savestate is captured, the fork captures the next four frames as a GS dump
+and saves its completed Zstandard stream as `GS.gs.zst` inside that directory
+after the savestate is written successfully. This applies to ordinary
+savestates as well as recording captures. Set `SaveStateGSDump = false` in
+`[EmuCore]` to disable it; the default is `true`, with no UI control. The configured
+GS dump compression does not affect these dumps.
+
+Each savestate gets its own capture, including when another savestate or hotkey
+dump is already being captured. Emulation must continue for four captured frames;
+stopping or resetting the VM, or loading another state, discards an unfinished
+capture. Dump failures do not affect the saved state, and incomplete output is
+discarded. Loading reads only known state components and ignores the dump.
+Directory backups and copies include it, and replacing or deleting a slot removes
+it with the other state files.
+
 ## Tests
 
+- `tests/ctest/core/gs_dump_tests.cpp` covers completing an in-memory Zstandard
+  stream at a compression-buffer boundary and discarding unfinished captures.
 - `tests/ctest/core/input_recording_tests.cpp` covers concurrent read-only
   playback, the record-mode lock during playback, capture mode and marker
   parsing, marker selection, and capture directories.

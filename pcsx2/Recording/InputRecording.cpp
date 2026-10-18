@@ -157,26 +157,33 @@ InputRecording g_InputRecording;
 
 static void BackupInputRecordingSaveState(const std::string& source)
 {
+	VMManager::WaitForSaveStateFlush();
 	if (!FileSystem::DirectoryExists(source.c_str()))
 		return;
 
 	const std::string destination = fmt::format("{}.backup", source);
-	if ((FileSystem::DirectoryExists(destination.c_str()) &&
-			!FileSystem::RecursiveDeleteDirectory(destination.c_str())) ||
-		!FileSystem::CreateDirectoryPath(destination.c_str(), false))
+	if (FileSystem::DirectoryExists(destination.c_str()) &&
+		!FileSystem::RecursiveDeleteDirectory(destination.c_str()))
 	{
 		return;
 	}
+	VMManager::UpdateSaveStateGSDumpPaths(destination, {});
+	if (!FileSystem::CreateDirectoryPath(destination.c_str(), false))
+		return;
 
 	FileSystem::FindResultsArray files;
 	if (!FileSystem::FindFiles(source.c_str(), "*", FILESYSTEM_FIND_FILES, &files))
 		return;
 
+	bool copied = true;
 	for (const FILESYSTEM_FIND_DATA& file : files)
 	{
-		FileSystem::CopyFilePath(
-			file.FileName.c_str(), Path::Combine(destination, Path::GetFileName(file.FileName)).c_str(), true);
+		copied = FileSystem::CopyFilePath(
+					 file.FileName.c_str(), Path::Combine(destination, Path::GetFileName(file.FileName)).c_str(), true) &&
+		         copied;
 	}
+	if (copied)
+		VMManager::UpdateSaveStateGSDumpPaths(source, destination, true);
 }
 
 bool InputRecording::create(const std::string& fileName, const bool fromSaveState, const std::string& authorName)

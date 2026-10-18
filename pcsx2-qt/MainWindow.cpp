@@ -4156,7 +4156,8 @@ void MainWindow::populateLoadStateMenu(QMenu* menu, const QString& filename, con
 				return;
 			}
 
-			const u32 deleted = VMManager::DeleteSaveStates(serial.toUtf8().constData(), crc, true);
+			u32 deleted = 0;
+			Host::RunOnCPUThread([&]() { deleted = VMManager::DeleteSaveStates(serial.toUtf8().constData(), crc, true); }, true);
 			QMessageBox::information(this, tr("Delete Save States"), tr("%n save states deleted.", "", deleted));
 		});
 	}
