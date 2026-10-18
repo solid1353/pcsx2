@@ -7,6 +7,7 @@
 #include "SaveState.h"
 #include "pcsx2/Config.h"
 
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -75,6 +76,7 @@ int GSfreeze(FreezeAction mode, freezeData* data);
 std::string GSGetBaseSnapshotFilename();
 std::string GSGetBaseVideoFilename();
 void GSQueueSnapshot(const std::string& path, u32 gsdump_frames = 0);
+void GSQueueSavestateGSDump(std::function<void(std::vector<u8>)> data_callback);
 void GSStopGSDump();
 bool GSBeginCapture(std::string filename);
 void GSEndCapture();

@@ -81,6 +81,28 @@
 
 namespace VMManager
 {
+	struct SaveStateGSDump
+	{
+		// Accessed only on the CPU thread; workers and the GS thread just retain the request.
+		std::vector<std::string> directories;
+		std::vector<u8> data;
+		bool saved = false;
+	};
+	static std::vector<std::weak_ptr<SaveStateGSDump>> s_save_state_gs_dumps;
+
+	static void CancelSaveStateGSDumps()
+	{
+		for (const auto& request : s_save_state_gs_dumps)
+		{
+			if (const auto dump = request.lock())
+			{
+				dump->directories.clear();
+				dump->data.clear();
+			}
+		}
+		s_save_state_gs_dumps.clear();
+	}
+
 	static std::optional<int> s_pine_port_override;
 	static std::optional<bool> s_pine_enabled_override;
 	static std::optional<std::string> s_memory_card_override;
@@ -127,10 +149,12 @@ namespace VMManager
 		std::string screenshot_filename, std::function<void(const std::string&)> error_callback);
 	static void WriteSaveState(std::unique_ptr<SaveStateEntryList> elist,
 		std::unique_ptr<SaveStateScreenshotData> screenshot, const char* filename,
-		const char* screenshot_filename, s32 slot_for_message, std::function<void(const std::string&)> error_callback);
+		const char* screenshot_filename, s32 slot_for_message, std::shared_ptr<SaveStateGSDump> gs_dump,
+		std::function<void(const std::string&)> error_callback);
 	static void WriteSaveStateOnThread(std::unique_ptr<SaveStateEntryList> elist,
 		std::unique_ptr<SaveStateScreenshotData> screenshot, std::string filename,
-		std::string screenshot_filename, s32 slot_for_message, std::function<void(const std::string&)> error_callback);
+		std::string screenshot_filename, s32 slot_for_message, std::shared_ptr<SaveStateGSDump> gs_dump,
+		std::function<void(const std::string&)> error_callback);
 
 	static void LoadSettings();
 	static void LoadCoreSettings(SettingsInterface& si);
@@ -1848,6 +1872,9 @@ void VMManager::Shutdown(bool save_resume_state)
 		}
 	}
 
+	// Discard captures which cannot finish before this VM stops.
+	CancelSaveStateGSDumps();
+
 	// end input recording before clearing state
 	if (g_InputRecording.isActive())
 		g_InputRecording.stop();
@@ -1964,6 +1991,7 @@ void VMManager::Reset()
 	vu1Thread.WaitVU();
 	vu1Thread.Reset();
 	MTGS::WaitGS();
+	CancelSaveStateGSDumps();
 
 	const bool elf_was_changed = (s_current_crc != 0);
 	ClearELFInfo();
@@ -2100,6 +2128,8 @@ bool VMManager::DoLoadState(const char* filename, Error* error)
 	if (!SaveState_LoadFromDirectory(filename, error))
 		return false;
 
+	CancelSaveStateGSDumps();
+
 	Host::OnSaveStateLoaded(filename, true);
 	if (g_InputRecording.isActive())
 	{
@@ -2109,6 +2139,71 @@ bool VMManager::DoLoadState(const char* filename, Error* error)
 
 	MemcardBusy::CheckSaveStateDependency();
 	return true;
+}
+
+void VMManager::UpdateSaveStateGSDumpPaths(const std::string& source, const std::string& destination, bool copy)
+{
+	std::erase_if(s_save_state_gs_dumps, [](const auto& request) { return request.expired(); });
+	for (const auto& request : s_save_state_gs_dumps)
+	{
+		const auto dump = request.lock();
+		if (!dump)
+			continue;
+
+		const auto it = std::find(dump->directories.begin(), dump->directories.end(), source);
+		if (it == dump->directories.end())
+			continue;
+
+		if (copy)
+			dump->directories.push_back(destination);
+		else if (destination.empty())
+			dump->directories.erase(it);
+		else
+			*it = destination;
+	}
+}
+
+static void WriteSaveStateGSDump(const std::string& directory, const std::vector<u8>& data)
+{
+	const std::string filename = Path::Combine(directory, "GS.gs.zst");
+	const std::string temporary_filename = filename + ".tmp";
+	ScopedGuard cleanup([&temporary_filename]() { FileSystem::DeleteFilePath(temporary_filename.c_str()); });
+	FILE* fp = FileSystem::OpenCFile(temporary_filename.c_str(), "wb");
+	bool written = false;
+	if (fp)
+	{
+		written = (std::fwrite(data.data(), 1, data.size(), fp) == data.size());
+		written = (std::fclose(fp) == 0) && written;
+	}
+	if (!written || !FileSystem::RenamePath(temporary_filename.c_str(), filename.c_str()))
+		Console.Warning("Failed to save savestate GS dump to '%s'.", filename.c_str());
+}
+
+static void PublishSaveStateGSDump(VMManager::SaveStateGSDump& request)
+{
+	if (!request.saved || request.data.empty())
+		return;
+
+	for (const std::string& directory : request.directories)
+		WriteSaveStateGSDump(directory, request.data);
+	request.data.clear();
+}
+
+static void QueueSaveStateGSDump(std::shared_ptr<VMManager::SaveStateGSDump> request)
+{
+	if (request->directories.empty() || !VMManager::HasValidVM() || !MTGS::IsOpen())
+		return;
+
+	MTGS::RunOnGSThread([request = std::move(request)]() {
+		GSQueueSavestateGSDump([request](std::vector<u8> data) {
+			// Directory operations and publication run on the CPU thread, so a late completion
+			// follows a backup rename and cannot recreate a deleted or replaced savestate.
+			Host::RunOnCPUThread([request, data = std::move(data)]() mutable {
+				request->data = std::move(data);
+				PublishSaveStateGSDump(*request);
+			});
+		});
+	});
 }
 
 void VMManager::DoSaveState(const char* filename, s32 slot_for_message, bool save_on_thread, bool backup_old_state,
@@ -2129,6 +2224,7 @@ void VMManager::DoSaveState(const char* filename, s32 slot_for_message, bool sav
 	}
 
 	std::unique_ptr<SaveStateScreenshotData> screenshot = SaveState_SaveScreenshot();
+	WaitForSaveStateFlush();
 
 	if (FileSystem::DirectoryExists(filename))
 	{
@@ -2137,16 +2233,22 @@ void VMManager::DoSaveState(const char* filename, s32 slot_for_message, bool sav
 			const std::string backup_filename = GetSaveStateBackupFileName(filename);
 			const std::string backup_directory(Path::GetDirectory(backup_filename));
 			Console.WriteLn(fmt::format("Creating save state backup {}...", backup_filename));
-			if (!FileSystem::EnsureDirectoryExists(backup_directory.c_str(), false) ||
-				(FileSystem::DirectoryExists(backup_filename.c_str()) &&
-					!FileSystem::RecursiveDeleteDirectory(backup_filename.c_str())) ||
-				!FileSystem::RenamePath(filename, backup_filename.c_str()))
+			bool backed_up = FileSystem::EnsureDirectoryExists(backup_directory.c_str(), false) &&
+			                 (!FileSystem::DirectoryExists(backup_filename.c_str()) ||
+								 FileSystem::RecursiveDeleteDirectory(backup_filename.c_str()));
+			if (backed_up)
+			{
+				UpdateSaveStateGSDumpPaths(backup_filename, {});
+				backed_up = FileSystem::RenamePath(filename, backup_filename.c_str());
+			}
+			if (!backed_up)
 			{
 				error_callback(fmt::format(
 					TRANSLATE_FS("VMManager", "Cannot back up old save state '{}'."),
 					Path::GetFileName(filename)));
 				return;
 			}
+			UpdateSaveStateGSDumpPaths(filename, backup_filename);
 		}
 		else if (!FileSystem::RecursiveDeleteDirectory(filename))
 		{
@@ -2156,18 +2258,29 @@ void VMManager::DoSaveState(const char* filename, s32 slot_for_message, bool sav
 			return;
 		}
 	}
+	UpdateSaveStateGSDumpPaths(filename, {});
+
+	std::shared_ptr<SaveStateGSDump> gs_dump;
+	if (EmuConfig.SaveStateGSDump && HasValidVM())
+	{
+		gs_dump = std::make_shared<SaveStateGSDump>();
+		gs_dump->directories.emplace_back(filename);
+		std::erase_if(s_save_state_gs_dumps, [](const auto& request) { return request.expired(); });
+		s_save_state_gs_dumps.push_back(gs_dump);
+		QueueSaveStateGSDump(gs_dump);
+	}
 
 	if (save_on_thread)
 	{
 		// lock order here is important; the thread could exit before we resume here.
 		std::unique_lock lock(s_save_state_threads_mutex);
 		s_save_state_threads.emplace_back(&VMManager::WriteSaveStateOnThread, std::move(elist), std::move(screenshot),
-			std::string(filename), std::move(screenshot_filename), slot_for_message, std::move(error_callback));
+			std::string(filename), std::move(screenshot_filename), slot_for_message, std::move(gs_dump), std::move(error_callback));
 	}
 	else
 	{
 		WriteSaveState(std::move(elist), std::move(screenshot), filename,
-			screenshot_filename.empty() ? nullptr : screenshot_filename.c_str(), slot_for_message, std::move(error_callback));
+			screenshot_filename.empty() ? nullptr : screenshot_filename.c_str(), slot_for_message, std::move(gs_dump), std::move(error_callback));
 	}
 
 	Host::OnSaveStateSaved(filename);
@@ -2177,7 +2290,8 @@ void VMManager::DoSaveState(const char* filename, s32 slot_for_message, bool sav
 
 void VMManager::WriteSaveState(std::unique_ptr<SaveStateEntryList> elist,
 	std::unique_ptr<SaveStateScreenshotData> screenshot, const char* filename,
-	const char* screenshot_filename, s32 slot_for_message, std::function<void(const std::string&)> error_callback)
+	const char* screenshot_filename, s32 slot_for_message, std::shared_ptr<SaveStateGSDump> gs_dump,
+	std::function<void(const std::string&)> error_callback)
 {
 	Common::Timer timer;
 
@@ -2196,14 +2310,21 @@ void VMManager::WriteSaveState(std::unique_ptr<SaveStateEntryList> elist,
 	}
 
 	DevCon.WriteLn("Writing save state to '%s' took %.2f ms", filename, timer.GetTimeMilliseconds());
+
+	if (gs_dump)
+		Host::RunOnCPUThread([request = std::move(gs_dump)]() {
+			request->saved = true;
+			PublishSaveStateGSDump(*request);
+		});
 }
 
 void VMManager::WriteSaveStateOnThread(std::unique_ptr<SaveStateEntryList> elist,
 	std::unique_ptr<SaveStateScreenshotData> screenshot, std::string filename,
-	std::string screenshot_filename, s32 slot_for_message, std::function<void(const std::string&)> error_callback)
+	std::string screenshot_filename, s32 slot_for_message, std::shared_ptr<SaveStateGSDump> gs_dump,
+	std::function<void(const std::string&)> error_callback)
 {
 	WriteSaveState(std::move(elist), std::move(screenshot), filename.c_str(),
-		screenshot_filename.empty() ? nullptr : screenshot_filename.c_str(), slot_for_message, std::move(error_callback));
+		screenshot_filename.empty() ? nullptr : screenshot_filename.c_str(), slot_for_message, std::move(gs_dump), std::move(error_callback));
 
 	// remove ourselves from the thread list. if we're joining, we might not be in there.
 	const auto this_id = std::this_thread::get_id();
@@ -2251,6 +2372,8 @@ bool VMManager::DeleteStateFromSlot(s32 slot, Error* error)
 		return false;
 	}
 
+	UpdateSaveStateGSDumpPaths(filename, {});
+
 	Host::AddIconOSDMessage("DeleteStateFromSlot", ICON_FA_TRASH,
 		fmt::format(TRANSLATE_FS("VMManager", "Deleted state from slot {}."), slot), Host::OSD_QUICK_DURATION);
 	return true;
@@ -2265,13 +2388,19 @@ u32 VMManager::DeleteSaveStates(const char* game_serial, u32 game_crc, bool also
 	{
 		std::string filename(GetSaveStateFileName(game_serial, game_crc, i));
 		if (FileSystem::DirectoryExists(filename.c_str()) && FileSystem::RecursiveDeleteDirectory(filename.c_str()))
+		{
+			UpdateSaveStateGSDumpPaths(filename, {});
 			deleted++;
+		}
 
 		if (also_backups)
 		{
 			filename = GetSaveStateBackupFileName(filename);
 			if (FileSystem::DirectoryExists(filename.c_str()) && FileSystem::RecursiveDeleteDirectory(filename.c_str()))
+			{
+				UpdateSaveStateGSDumpPaths(filename, {});
 				deleted++;
+			}
 		}
 	}
 

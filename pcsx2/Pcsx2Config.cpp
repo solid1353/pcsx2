@@ -1931,6 +1931,7 @@ Pcsx2Config::Pcsx2Config()
 	InhibitScreensaver = true;
 	UseSavestateSelector = true;
 	BackupSavestate = true;
+	SaveStateGSDump = true;
 	WarnAboutUnsafeSettings = true;
 	EnableDiscordPresence = false;
 	ManuallySetRealTimeClock = false;
@@ -1979,6 +1980,7 @@ void Pcsx2Config::LoadSaveCore(SettingsWrapper& wrap)
 	SettingsWrapBitBool(HostFs);
 
 	SettingsWrapBitBool(BackupSavestate);
+	SettingsWrapBitBool(SaveStateGSDump);
 
 	SettingsWrapBitBool(WarnAboutUnsafeSettings);
 

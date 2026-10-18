@@ -7,6 +7,9 @@
 #include "GS/GSRegs.h"
 #include "GS/Renderers/SW/GSVertexSW.h"
 
+#include <functional>
+#include <vector>
+
 /*
 
 Dump file format:
@@ -43,23 +46,32 @@ struct GSDumpHeader
 
 class GSDumpBase
 {
+	using DataCallback = std::function<void(std::vector<u8>)>;
+
 	FILE* m_gs;
 	std::string m_filename;
 	int m_frames;
 	int m_extra_frames;
+	DataCallback m_data_callback;
+	std::vector<u8> m_data;
+	bool m_completed = false;
+	bool m_failed = false;
 
 protected:
 	void AddHeader(const std::string& serial, u32 crc,
 		u32 screenshot_width, u32 screenshot_height, const u32* screenshot_pixels,
 		const freezeData& fd, const GSPrivRegSet* regs);
 	void Write(const void* data, size_t size);
+	void SetError() { m_failed = true; }
+	bool HasError() const { return m_failed; }
 
 	virtual void AppendRawData(const void* data, size_t size) = 0;
 	virtual void AppendRawData(u8 c) = 0;
 
 public:
-	GSDumpBase(std::string fn);
+	GSDumpBase(std::string fn, DataCallback data_callback = {});
 	virtual ~GSDumpBase();
+	void Complete() { m_completed = true; }
 
 	__fi const std::string& GetPath() const { return m_filename; }
 
@@ -78,5 +90,5 @@ public:
 	static std::unique_ptr<GSDumpBase> CreateZstDump(
 		const std::string& fn, const std::string& serial, u32 crc,
 		u32 screenshot_width, u32 screenshot_height, const u32* screenshot_pixels,
-		const freezeData& fd, const GSPrivRegSet* regs);
+		const freezeData& fd, const GSPrivRegSet* regs, DataCallback data_callback = {});
 };

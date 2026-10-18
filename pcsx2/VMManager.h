@@ -192,6 +192,10 @@ namespace VMManager
 	/// Waits until all save states have finished writing to disk.
 	void WaitForSaveStateFlush();
 
+	/// Updates pending GS dump destinations after moving, copying, or deleting a savestate directory.
+	/// An empty destination removes the source destination. Call on the CPU thread.
+	void UpdateSaveStateGSDumpPaths(const std::string& source, const std::string& destination, bool copy = false);
+
 	/// Removes all save states for the specified serial and crc. Returns the number of files deleted.
 	u32 DeleteSaveStates(const char* game_serial, u32 game_crc, bool also_backups = true);
 

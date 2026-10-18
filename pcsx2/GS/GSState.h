@@ -290,6 +290,12 @@ public:
 	GSDrawingContext* m_context = nullptr;
 	GSVector4i temp_draw_rect;
 	std::unique_ptr<GSDumpBase> m_dump;
+	struct SavestateGSDump
+	{
+		std::unique_ptr<GSDumpBase> dump;
+		u32 frames_remaining = 4;
+	};
+	std::vector<SavestateGSDump> m_savestate_dumps;
 	bool m_scissor_invalid = false;
 	bool m_quad_check_valid = false;
 	bool m_quad_check_valid_shuffle = false;

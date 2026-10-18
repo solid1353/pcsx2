@@ -4,6 +4,7 @@
 #pragma once
 
 #include "GS/GSState.h"
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -55,6 +56,7 @@ public:
 		u32* width, u32* height, std::vector<u32>* pixels);
 
 	void QueueSnapshot(const std::string& path, const u32 gsdump_frames);
+	void QueueSavestateGSDump(std::function<void(std::vector<u8>)> data_callback);
 	void StopGSDump();
 	void PresentCurrentFrame();
 	bool BeginCapture(std::string filename, const GSVector2i& size = GSVector2i(0, 0));
