@@ -1881,8 +1881,12 @@ void ImGuiManager::DrawNA228ResourceMonitor(float scale, float margin, float spa
 		return;
 
 	ImFont* const font = GetOSDFont();
-	const float font_size = GetFontSizeStandard() * 0.8f;
+	const float font_size = GetFontSizeStandard();
 	const float line_height = ImGuiFullscreen::GetLineHeight({font, font_size}) + spacing;
+	const float padding = 4.0f * scale;
+	float text_width = 0.0f;
+	for (const auto& line : lines)
+		text_width = std::max(text_width, font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, line.text.c_str()).x);
 
 	float y = margin;
 	if (GSConfig.OsdPerformancePos == OsdOverlayPos::TopLeft && s_performance_overlay_bounds.w > s_performance_overlay_bounds.y)
@@ -1890,18 +1894,32 @@ void ImGuiManager::DrawNA228ResourceMonitor(float scale, float margin, float spa
 		y = s_performance_overlay_bounds.w + spacing;
 	}
 
-	ImDrawList* const dl = ImGui::GetBackgroundDrawList();
-	const float shadow = std::ceil(scale);
-	// Sampling needs proper testing with live NA228 gameplay; it can miss frame-end pool peaks.
-	for (const auto& line : lines)
+	ImGui::SetNextWindowPos(ImVec2(margin, y));
+	ImGui::SetNextWindowSize(ImVec2(text_width + 2.0f * padding, line_height * static_cast<float>(lines.size()) - spacing + 2.0f * padding));
+	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.45f));
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4.0f * scale);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(padding, padding));
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+	if (ImGui::Begin("##na228_resource_monitor", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing))
 	{
-		const ImU32 color = line.pressure == NA228ResourceMonitor::Pressure::Critical ? IM_COL32(255, 100, 100, 255) :
-		                    line.pressure == NA228ResourceMonitor::Pressure::Warning  ? IM_COL32(255, 220, 80, 255) :
-		                                                                                white_color;
-		dl->AddText(font, font_size, ImVec2(margin + shadow, y + shadow), IM_COL32(0, 0, 0, 180), line.text.c_str());
-		dl->AddText(font, font_size, ImVec2(margin, y), color, line.text.c_str());
-		y += line_height;
+		ImDrawList* const dl = ImGui::GetWindowDrawList();
+		const ImVec2 text_position = ImGui::GetCursorScreenPos();
+		y = text_position.y;
+		const float shadow = std::ceil(scale);
+		// Sampling needs proper testing with live NA228 gameplay; it can miss frame-end pool peaks.
+		for (const auto& line : lines)
+		{
+			const ImU32 color = line.pressure == NA228ResourceMonitor::Pressure::Critical ? IM_COL32(255, 100, 100, 255) :
+			                    line.pressure == NA228ResourceMonitor::Pressure::Warning  ? IM_COL32(255, 220, 80, 255) :
+			                                                                                white_color;
+			dl->AddText(font, font_size, ImVec2(text_position.x + shadow, y + shadow), IM_COL32(0, 0, 0, 180), line.text.c_str());
+			dl->AddText(font, font_size, ImVec2(text_position.x, y), color, line.text.c_str());
+			y += line_height;
+		}
 	}
+	ImGui::End();
+	ImGui::PopStyleVar(3);
+	ImGui::PopStyleColor();
 }
 
 void ImGuiManager::RenderOverlays()

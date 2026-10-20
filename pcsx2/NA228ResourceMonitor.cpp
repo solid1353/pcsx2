@@ -184,15 +184,14 @@ namespace NA228ResourceMonitor
 		{
 			constexpr double mib = 1024.0 * 1024.0;
 			lines.push_back({fmt::format("Heap: {:.2f} / {:.2f} MiB | Peak: {:.2f} MiB | Allocs: {}", heap.used / mib, heap.arena / mib, heap.peak / mib, heap.allocations)});
-			lines.push_back({fmt::format("Largest gap: {:.2f} MiB", heap.largest_gap / mib), GapPressure(heap.largest_gap)});
-			lines.push_back({fmt::format("Lowest largest gap: {:.2f} MiB", heap.lowest_largest_gap / mib), GapPressure(heap.lowest_largest_gap)});
+			lines.push_back({fmt::format("Largest gap: {:.2f} MiB | Lowest: {:.2f} MiB", heap.largest_gap / mib, heap.lowest_largest_gap / mib),
+				std::max(GapPressure(heap.largest_gap), GapPressure(heap.lowest_largest_gap))});
 		}
 		else
 		{
 			lines.push_back({"Heap: unreadable"});
 		}
 
-		lines.push_back({"Render pools (sampled; frame-end resets can hide peaks)"});
 		for (size_t i = 0; i < snapshot.pools.size(); i++)
 		{
 			const Pool& pool = snapshot.pools[i];
