@@ -20,6 +20,19 @@ FolderSettingsWidget::FolderSettingsWidget(SettingsWindow* settings_dialog, QWid
 
 	setupTab(m_ui);
 
+	SettingWidgetBinder::BindWidgetToStringSetting(nullptr, m_ui.startFile, "Folders", "StartFile");
+	m_ui.startFileGroup->setEnabled(!sif);
+	connect(m_ui.startFileBrowse, &QPushButton::clicked, this, [this]() {
+		const QString path = QDir::toNativeSeparators(QFileDialog::getExistingDirectory(this, tr("Select Start File Directory"), m_ui.startFile->text()));
+		if (!path.isEmpty())
+			m_ui.startFile->setText(path);
+	});
+	connect(m_ui.startFileOpen, &QPushButton::clicked, this, [this]() {
+		if (!m_ui.startFile->text().isEmpty())
+			QtUtils::OpenURL(this, QUrl::fromLocalFile(m_ui.startFile->text()));
+	});
+	connect(m_ui.startFileReset, &QPushButton::clicked, m_ui.startFile, &QLineEdit::clear);
+
 	SettingWidgetBinder::BindWidgetToFolderSetting(sif, m_ui.cache, m_ui.cacheBrowse, m_ui.cacheOpen, m_ui.cacheReset, "Folders", "Cache", Path::Combine(EmuFolders::DataRoot, "cache"));
 	SettingWidgetBinder::BindWidgetToFolderSetting(sif, m_ui.cheats, m_ui.cheatsBrowse, m_ui.cheatsOpen, m_ui.cheatsReset, "Folders", "Cheats", Path::Combine(EmuFolders::DataRoot, "cheats"));
 	SettingWidgetBinder::BindWidgetToFolderSetting(sif, m_ui.covers, m_ui.coversBrowse, m_ui.coversOpen, m_ui.coversReset, "Folders", "Covers", Path::Combine(EmuFolders::DataRoot, "covers"));
