@@ -1349,6 +1349,9 @@
     <ClCompile Include="ImGui\ImGuiOverlays.cpp">
       <Filter>Misc\ImGui</Filter>
     </ClCompile>
+    <ClCompile Include="NA228ResourceMonitor.cpp">
+      <Filter>Misc</Filter>
+    </ClCompile>
     <ClCompile Include="ImGui\FullscreenUI.cpp">
       <Filter>Misc\ImGui</Filter>
     </ClCompile>
@@ -2309,6 +2312,9 @@
     </ClInclude>
     <ClInclude Include="ImGui\ImGuiOverlays.h">
       <Filter>Misc\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="NA228ResourceMonitor.h">
+      <Filter>Misc</Filter>
     </ClInclude>
     <ClInclude Include="ImGui\FullscreenUI.h">
       <Filter>Misc\ImGui</Filter>
