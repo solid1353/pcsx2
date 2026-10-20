@@ -1865,9 +1865,10 @@ void ImGuiManager::ToggleNA228ResourceMonitor()
 	if (s_na228_monitor_enabled)
 		s_na228_monitor_history = {};
 
-	const char* message = !s_na228_monitor_enabled                       ? "NA228 Resource Monitor off" :
-	                      NA228ResourceMonitor::Detect(GetNA228Memory()) ? "NA228 Resource Monitor on" :
-	                                                                       "NA228 Resource Monitor on: not an NA228 build";
+	if (NA228ResourceMonitor::Detect(GetNA228Memory()))
+		return;
+
+	const char* message = s_na228_monitor_enabled ? "NA228 Resource Monitor on: not an NA228 build" : "NA228 Resource Monitor off";
 	Host::AddKeyedOSDMessage("NA228ResourceMonitor", message, Host::OSD_QUICK_DURATION);
 }
 
