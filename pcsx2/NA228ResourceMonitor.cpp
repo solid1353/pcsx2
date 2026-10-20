@@ -94,6 +94,10 @@ namespace NA228ResourceMonitor
 		if (!memory.Range(backing, 1) || !memory.Range(end, 0) || end < backing)
 			return pool;
 
+		uint32_t bump_block = 0, bump_remaining = 0;
+		const bool bump_readable = memory.Read32(0x006073c0, bump_block) && memory.Read32(0x006073bc, bump_remaining);
+		bump_block &= PHYSICAL_MASK;
+
 		pool.size = end - backing;
 		uint32_t blocks = 0;
 		for (uint32_t block = backing; block < end;)
@@ -106,7 +110,12 @@ namespace NA228ResourceMonitor
 				return pool;
 			}
 			if (owner != 0)
-				pool.used += total;
+			{
+				// The active bump block includes its unused tail until the frame-end split.
+				pool.used += bump_readable && block == bump_block && bump_remaining != 0 && bump_remaining <= total ?
+				                 total - bump_remaining :
+				                 total;
+			}
 			block += total;
 		}
 

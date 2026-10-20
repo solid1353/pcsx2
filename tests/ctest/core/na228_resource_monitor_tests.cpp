@@ -164,6 +164,73 @@ namespace
 		EXPECT_NEAR(pool.percent, 200.0 / 3.0, 0.0001);
 	}
 
+	TEST_F(NA228MonitorTest, CountsOnlyHandedOutBytesInActiveBumpBlock)
+	{
+		SetPool();
+		SetBlock(BACKING, 16, true);
+		SetBlock(BACKING + 16, 48, true);
+		Write32(0x6073c0, (BACKING + 16) | 0xa0000000);
+		for (uint32_t remaining : {16u, 48u})
+		{
+			Write32(0x6073bc, remaining);
+			const Pool pool = SamplePool();
+			ASSERT_TRUE(pool.readable);
+			EXPECT_EQ(pool.size, 64u);
+			EXPECT_EQ(pool.used, 64u - remaining);
+			EXPECT_EQ(pool.percent, 100.0 * (64u - remaining) / 64u);
+		}
+	}
+
+	TEST_F(NA228MonitorTest, IgnoresBumpRemainingLargerThanActiveBlock)
+	{
+		SetPool();
+		SetBlock(BACKING, 16, true);
+		SetBlock(BACKING + 16, 48, true);
+		Write32(0x6073bc, 49);
+		Write32(0x6073c0, BACKING + 16);
+		const Pool pool = SamplePool();
+		ASSERT_TRUE(pool.readable);
+		EXPECT_EQ(pool.used, 64u);
+		EXPECT_EQ(pool.percent, 100.0);
+	}
+
+	TEST_F(NA228MonitorTest, LeavesPoolWithoutActiveBumpBlockUnchanged)
+	{
+		SetPool();
+		SetBlock(BACKING, 48, true);
+		SetBlock(BACKING + 48, 16, false);
+		Write32(0x6073bc, 16);
+		Write32(0x6073c0, 0);
+		const Pool pool = SamplePool();
+		ASSERT_TRUE(pool.readable);
+		EXPECT_EQ(pool.used, 48u);
+		EXPECT_EQ(pool.percent, 75.0);
+	}
+
+	TEST_F(NA228MonitorTest, LeavesActiveBumpBlockWithNoRemainingBytesUnchanged)
+	{
+		SetPool();
+		SetBlock(BACKING, 64, true);
+		Write32(0x6073bc, 0);
+		Write32(0x6073c0, BACKING);
+		const Pool pool = SamplePool();
+		ASSERT_TRUE(pool.readable);
+		EXPECT_EQ(pool.used, 64u);
+		EXPECT_EQ(pool.percent, 100.0);
+	}
+
+	TEST_F(NA228MonitorTest, DoesNotCountUnownedBumpBlock)
+	{
+		SetPool();
+		SetBlock(BACKING, 64, false);
+		Write32(0x6073bc, 16);
+		Write32(0x6073c0, BACKING);
+		const Pool pool = SamplePool();
+		ASSERT_TRUE(pool.readable);
+		EXPECT_EQ(pool.used, 0u);
+		EXPECT_EQ(pool.percent, 0.0);
+	}
+
 	TEST_F(NA228MonitorTest, TracksPoolPeaksAndResetsHistory)
 	{
 		SetPool();
