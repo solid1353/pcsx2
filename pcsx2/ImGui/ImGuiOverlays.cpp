@@ -1883,16 +1883,11 @@ void ImGuiManager::DrawNA228ResourceMonitor(float scale, float margin, float spa
 	ImFont* const font = GetOSDFont();
 	const float font_size = GetFontSizeStandard() * 0.8f;
 	const float line_height = ImGuiFullscreen::GetLineHeight({font, font_size}) + spacing;
-	const float height = line_height * static_cast<float>(lines.size()) - spacing;
-	float width = 0.0f;
-	for (const auto& line : lines)
-		width = std::max(width, font->CalcTextSizeA(font_size, std::numeric_limits<float>::max(), -1.0f, line.text.c_str()).x);
 
-	float y = GetWindowHeight() - margin - height;
-	if (margin < s_performance_overlay_bounds.z && margin + width > s_performance_overlay_bounds.x &&
-		y < s_performance_overlay_bounds.w && y + height > s_performance_overlay_bounds.y)
+	float y = margin;
+	if (GSConfig.OsdPerformancePos == OsdOverlayPos::TopLeft && s_performance_overlay_bounds.w > s_performance_overlay_bounds.y)
 	{
-		y = s_performance_overlay_bounds.y - spacing - height;
+		y = s_performance_overlay_bounds.w + spacing;
 	}
 
 	ImDrawList* const dl = ImGui::GetBackgroundDrawList();
