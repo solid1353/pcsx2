@@ -2267,8 +2267,12 @@ void MainWindow::onGameListEntryContextMenuRequested(const QPoint& point)
 
 void MainWindow::onStartFileActionTriggered()
 {
+	const std::string start_file_directory = Host::GetBaseStringSettingValue("Folders", "StartFile");
+	const QString directory = (!start_file_directory.empty() && FileSystem::DirectoryExists(start_file_directory.c_str())) ?
+	                              QString::fromStdString(start_file_directory) :
+	                              QString();
 	const QString path(
-		QDir::toNativeSeparators(QFileDialog::getOpenFileName(this, tr("Start File"), QString(), tr(OPEN_FILE_FILTER), nullptr)));
+		QDir::toNativeSeparators(QFileDialog::getOpenFileName(this, tr("Start File"), directory, tr(OPEN_FILE_FILTER), nullptr)));
 	if (path.isEmpty())
 		return;
 

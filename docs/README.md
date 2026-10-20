@@ -4,6 +4,8 @@ These documents describe behavior that this fork adds to or changes in
 upstream PCSX2, written from the current fork source. Upstream behavior is
 documented by the PCSX2 project.
 
+Start File Directory (`StartFile` in `[Folders]`) sets the Start File folder; when empty or missing, it uses the last folder used.
+
 - [Launch options](launch_options.md): command-line options for windows,
   speed, settings, memory cards, PINE, and agent replay.
 - [Input recording capture](input_recording_capture.md): recording paths,

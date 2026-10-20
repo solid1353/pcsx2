@@ -12,6 +12,55 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
+    <widget class="QGroupBox" name="startFileGroup">
+     <property name="title">
+      <string>Start File Directory</string>
+     </property>
+     <layout class="QGridLayout" name="startFileLayout">
+      <item row="0" column="0" colspan="4">
+       <widget class="QLabel" name="startFileLabel">
+        <property name="text">
+         <string>Folder that Start File opens in. When empty or missing, Start File opens the last folder used.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+        <property name="textInteractionFlags">
+         <set>Qt::TextInteractionFlag::TextBrowserInteraction</set>
+        </property>
+        <property name="buddy">
+         <cstring>startFile</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLineEdit" name="startFile"/>
+      </item>
+      <item row="1" column="1">
+       <widget class="QPushButton" name="startFileBrowse">
+        <property name="text">
+         <string>Browse...</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="2">
+       <widget class="QPushButton" name="startFileOpen">
+        <property name="text">
+         <string>Open...</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="3">
+       <widget class="QPushButton" name="startFileReset">
+        <property name="text">
+         <string>Reset</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
     <widget class="QGroupBox" name="cacheGroup">
      <property name="title">
       <string>Cache Directory</string>
@@ -398,6 +447,10 @@
   </layout>
  </widget>
  <tabstops>
+  <tabstop>startFile</tabstop>
+  <tabstop>startFileBrowse</tabstop>
+  <tabstop>startFileOpen</tabstop>
+  <tabstop>startFileReset</tabstop>
   <tabstop>cache</tabstop>
   <tabstop>cacheBrowse</tabstop>
   <tabstop>cacheOpen</tabstop>
