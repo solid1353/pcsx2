@@ -23,6 +23,8 @@
 #include "ImGui/ImGuiOverlays.h"
 #include "Input/InputManager.h"
 #include "MTGS.h"
+#include "MemoryTypes.h"
+#include "NA228ResourceMonitor.h"
 #include "Patch.h"
 #include "PerformanceMetrics.h"
 #include "Recording/InputRecording.h"
@@ -75,6 +77,21 @@ SmallString s_gpu_stats_line;
 SmallString s_speed_icon;
 
 constexpr ImU32 white_color = IM_COL32(255, 255, 255, 255);
+
+static bool s_na228_monitor_enabled = false;
+static NA228ResourceMonitor::History s_na228_monitor_history;
+static ImVec4 s_performance_overlay_bounds;
+
+static void IncludePerformanceOverlayBounds(const ImVec2& position, const ImVec2& size)
+{
+	if (!s_na228_monitor_enabled)
+		return;
+
+	s_performance_overlay_bounds.x = std::min(s_performance_overlay_bounds.x, position.x);
+	s_performance_overlay_bounds.y = std::min(s_performance_overlay_bounds.y, position.y);
+	s_performance_overlay_bounds.z = std::max(s_performance_overlay_bounds.z, position.x + size.x);
+	s_performance_overlay_bounds.w = std::max(s_performance_overlay_bounds.w, position.y + size.y);
+}
 
 // OSD positioning funcs
 ImVec2 CalculateOSDPosition(OsdOverlayPos position, float margin, const ImVec2& text_size, float window_width, float window_height)
@@ -145,6 +162,7 @@ namespace ImGuiManager
 {
 	static void FormatProcessorStat(SmallStringBase& text, double usage, double time);
 	static void DrawPerformanceOverlay(float& position_y, float scale, float margin, float spacing);
+	static void DrawNA228ResourceMonitor(float scale, float margin, float spacing);
 	static void DrawShaderCompileIndicator(float scale, float margin, float spacing);
 	static void DrawSettingsOverlay(float scale, float margin, float spacing);
 	static void DrawInputsOverlay(float scale, float margin, float spacing);
@@ -232,6 +250,7 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 	{ \
 		text_size = font->CalcTextSizeA(size, std::numeric_limits<float>::max(), -1.0f, (text), nullptr, nullptr); \
 		const ImVec2 text_pos = CalculatePerformanceOverlayTextPosition(GSConfig.OsdPerformancePos, margin, text_size, GetWindowWidth(), position_y); \
+		IncludePerformanceOverlayBounds(text_pos, text_size); \
 		const bool __bold_osd = GSConfig.OsdBoldText; \
 		dl->AddText(font, size, ImVec2(text_pos.x + shadow_offset, text_pos.y + shadow_offset), IM_COL32(0, 0, 0, 100), (text)); \
 		dl->AddText(font, size, text_pos, color, (text)); \
@@ -715,7 +734,9 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 			const ImVec2 total_size(y_label_w + graph_size.x + right_label_w + 2.0f * pad, graph_size.y + legend_h + 2.0f * pad);
 
 			ImGui::SetNextWindowSize(total_size);
-			ImGui::SetNextWindowPos(CalculatePerformanceOverlayTextPosition(GSConfig.OsdPerformancePos, margin, total_size, GetWindowWidth(), position_y));
+			const ImVec2 graph_position = CalculatePerformanceOverlayTextPosition(GSConfig.OsdPerformancePos, margin, total_size, GetWindowWidth(), position_y);
+			IncludePerformanceOverlayBounds(graph_position, total_size);
+			ImGui::SetNextWindowPos(graph_position);
 			ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.45f));
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4.0f * scale);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
@@ -1827,6 +1848,67 @@ void SaveStateSelectorUI::ShowSlotOSDMessage()
 		Host::OSD_QUICK_DURATION);
 }
 
+static std::span<const uint8_t> GetNA228Memory()
+{
+	// VM shutdown waits for the GS thread before releasing EE RAM.
+	const VMState state = VMManager::GetState();
+	if ((state != VMState::Running && state != VMState::Paused) || !eeMem)
+		return {};
+
+	static_assert(NA228ResourceMonitor::EE_RAM_SIZE == Ps2MemSize::MainRam);
+	return {eeMem->Main, NA228ResourceMonitor::EE_RAM_SIZE};
+}
+
+void ImGuiManager::ToggleNA228ResourceMonitor()
+{
+	s_na228_monitor_enabled = !s_na228_monitor_enabled;
+	if (s_na228_monitor_enabled)
+		s_na228_monitor_history = {};
+
+	const char* message = !s_na228_monitor_enabled                       ? "NA228 Resource Monitor off" :
+	                      NA228ResourceMonitor::Detect(GetNA228Memory()) ? "NA228 Resource Monitor on" :
+	                                                                       "NA228 Resource Monitor on: not an NA228 build";
+	Host::AddKeyedOSDMessage("NA228ResourceMonitor", message, Host::OSD_QUICK_DURATION);
+}
+
+void ImGuiManager::DrawNA228ResourceMonitor(float scale, float margin, float spacing)
+{
+	if (!s_na228_monitor_enabled)
+		return;
+
+	const auto lines = NA228ResourceMonitor::Format(NA228ResourceMonitor::Sample(GetNA228Memory(), s_na228_monitor_history));
+	if (lines.empty())
+		return;
+
+	ImFont* const font = GetOSDFont();
+	const float font_size = GetFontSizeStandard() * 0.8f;
+	const float line_height = ImGuiFullscreen::GetLineHeight({font, font_size}) + spacing;
+	const float height = line_height * static_cast<float>(lines.size()) - spacing;
+	float width = 0.0f;
+	for (const auto& line : lines)
+		width = std::max(width, font->CalcTextSizeA(font_size, std::numeric_limits<float>::max(), -1.0f, line.text.c_str()).x);
+
+	float y = GetWindowHeight() - margin - height;
+	if (margin < s_performance_overlay_bounds.z && margin + width > s_performance_overlay_bounds.x &&
+		y < s_performance_overlay_bounds.w && y + height > s_performance_overlay_bounds.y)
+	{
+		y = s_performance_overlay_bounds.y - spacing - height;
+	}
+
+	ImDrawList* const dl = ImGui::GetBackgroundDrawList();
+	const float shadow = std::ceil(scale);
+	// Sampling needs proper testing with live NA228 gameplay; it can miss frame-end pool peaks.
+	for (const auto& line : lines)
+	{
+		const ImU32 color = line.pressure == NA228ResourceMonitor::Pressure::Critical ? IM_COL32(255, 100, 100, 255) :
+		                    line.pressure == NA228ResourceMonitor::Pressure::Warning  ? IM_COL32(255, 220, 80, 255) :
+		                                                                                white_color;
+		dl->AddText(font, font_size, ImVec2(margin + shadow, y + shadow), IM_COL32(0, 0, 0, 180), line.text.c_str());
+		dl->AddText(font, font_size, ImVec2(margin, y), color, line.text.c_str());
+		y += line_height;
+	}
+}
+
 void ImGuiManager::RenderOverlays()
 {
 	const float scale = ImGuiManager::GetGlobalScale();
@@ -1838,8 +1920,10 @@ void ImGuiManager::RenderOverlays()
 	DrawVideoCaptureOverlay(position_y, scale, margin, spacing);
 	DrawInputRecordingOverlay(position_y, scale, margin, spacing);
 	DrawTextureReplacementsOverlay(position_y, scale, margin, spacing);
+	s_performance_overlay_bounds = ImVec4(GetWindowWidth(), GetWindowHeight(), 0.0f, 0.0f);
 	if (GSConfig.OsdPerformancePos != OsdOverlayPos::None)
 		DrawPerformanceOverlay(position_y, scale, margin, spacing);
+	DrawNA228ResourceMonitor(scale, margin, spacing);
 	DrawSettingsOverlay(scale, margin, spacing);
 	DrawShaderCompileIndicator(scale, margin, spacing);
 	DrawInputsOverlay(scale, margin, spacing);

@@ -1,3 +1,11 @@
+add_pcsx2_test(na228_resource_monitor_test
+	na228_resource_monitor_tests.cpp
+	../../../pcsx2/NA228ResourceMonitor.cpp
+)
+target_compile_features(na228_resource_monitor_test PRIVATE cxx_std_20)
+target_include_directories(na228_resource_monitor_test PRIVATE ../../../pcsx2)
+target_link_libraries(na228_resource_monitor_test PRIVATE fmt::fmt)
+
 add_pcsx2_test(core_test
 	gs_dump_tests.cpp
 	input_binding_tests.cpp

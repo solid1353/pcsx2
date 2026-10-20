@@ -11,6 +11,8 @@ struct ImVec2;
 namespace ImGuiManager
 {
 	void RenderOverlays();
+	// Called on the GS thread, like the overlay renderer.
+	void ToggleNA228ResourceMonitor();
 }
 
 ImVec2 CalculateOSDPosition(OsdOverlayPos position, float margin, const ImVec2& text_size, float window_width, float window_height);

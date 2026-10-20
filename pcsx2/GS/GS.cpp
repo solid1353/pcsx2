@@ -5,6 +5,7 @@
 #include "Counters.h"
 #include "ImGui/FullscreenUI.h"
 #include "ImGui/ImGuiManager.h"
+#include "ImGui/ImGuiOverlays.h"
 #include "GS/GS.h"
 #include "GS/GSCapture.h"
 #include "GS/GSExtra.h"
@@ -1254,6 +1255,11 @@ BEGIN_HOTKEY_LIST(g_gs_hotkeys){"Screenshot", TRANSLATE_NOOP("Hotkeys", "Graphic
 		[](s32 pressed) {
 			if (!pressed)
 				HotkeyToggleOSD();
+		}},
+	{"ToggleNA228ResourceMonitor", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Toggle NA228 Resource Monitor"),
+		[](s32 pressed) {
+			if (!pressed)
+				MTGS::RunOnGSThread(&ImGuiManager::ToggleNA228ResourceMonitor);
 		}},
 	{"CycleAspectRatio", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Cycle Aspect Ratio"),
 		[](s32 pressed) {
