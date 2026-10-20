@@ -101,11 +101,12 @@ namespace
 		EXPECT_EQ(snapshot.heap.arena, 8 * 1024 * 1024u);
 		EXPECT_EQ(snapshot.heap.largest_gap, 2 * 1024 * 1024u);
 		const auto lines = Format(snapshot);
-		ASSERT_GE(lines.size(), 4u);
+		ASSERT_EQ(lines.size(), 4u);
 		EXPECT_EQ(lines[0].text, "NA228 Resource Monitor");
 		EXPECT_EQ(lines[1].text, "Heap: 3.00 / 8.00 MiB | Peak: 4.00 MiB | Allocs: 123");
-		EXPECT_EQ(lines[2].text, "Largest gap: 2.00 MiB");
-		EXPECT_EQ(lines[3].text, "Lowest largest gap: 2.00 MiB");
+		EXPECT_EQ(lines[2].text, "Largest gap: 2.00 MiB | Lowest: 2.00 MiB");
+		EXPECT_EQ(lines[2].pressure, Pressure::Normal);
+		EXPECT_EQ(lines[3].text, "No render pools");
 	}
 
 	TEST_F(NA228MonitorTest, TracksLowestGapAndResetsHistory)
@@ -126,6 +127,10 @@ namespace
 		EXPECT_EQ(Sample(ram, history).heap.arena, 8 * 1024 * 1024u);
 		Write32(0x60739c, 0x00ffffff);
 		EXPECT_FALSE(Sample(ram, history).heap.readable);
+		const auto lines = Format(Sample(ram, history));
+		ASSERT_EQ(lines.size(), 3u);
+		EXPECT_EQ(lines[1].text, "Heap: unreadable");
+		EXPECT_EQ(lines[2].text, "No render pools");
 		Write32(0x60739c, EE_RAM_SIZE + 1);
 		EXPECT_FALSE(Sample(ram, history).heap.readable);
 		Write32(0x60739c, EE_RAM_SIZE);
@@ -148,7 +153,22 @@ namespace
 		Write32(0x6073a4, 512 * 1024 - 1);
 		const auto lines = Format(Sample(ram, history));
 		EXPECT_EQ(lines[2].pressure, Pressure::Critical);
-		EXPECT_EQ(lines[3].pressure, Pressure::Critical);
+	}
+
+	TEST_F(NA228MonitorTest, FormatsMergedGapWithWorsePressure)
+	{
+		Snapshot snapshot = Sample(ram, history);
+		for (uint32_t gap : {0u, 512 * 1024u, 2 * 1024 * 1024u})
+		{
+			snapshot.heap.largest_gap = gap;
+			snapshot.heap.lowest_largest_gap = 2 * 1024 * 1024;
+			EXPECT_EQ(Format(snapshot)[2].pressure, GapPressure(gap));
+			std::swap(snapshot.heap.largest_gap, snapshot.heap.lowest_largest_gap);
+			EXPECT_EQ(Format(snapshot)[2].pressure, GapPressure(gap));
+		}
+		snapshot.heap.largest_gap = 2 * 1024 * 1024;
+		snapshot.heap.lowest_largest_gap = 256 * 1024;
+		EXPECT_EQ(Format(snapshot)[2].text, "Largest gap: 2.00 MiB | Lowest: 0.25 MiB");
 	}
 
 	TEST_F(NA228MonitorTest, WalksPhysicalBlocksWithoutAlignmentRequirement)
@@ -249,10 +269,9 @@ namespace
 		SetPool(1024);
 		SetBlock(BACKING, 1024, true);
 		const auto lines = Format(Sample(ram, history));
-		ASSERT_EQ(lines.size(), 6u);
-		EXPECT_EQ(lines[4].text, "Render pools (sampled; frame-end resets can hide peaks)");
-		EXPECT_EQ(lines[5].text, "Pool 1: 100.0% | 1.0 / 1.0 KiB | Peak: 100.0%");
-		EXPECT_EQ(lines[5].pressure, Pressure::Critical);
+		ASSERT_EQ(lines.size(), 4u);
+		EXPECT_EQ(lines[3].text, "Pool 1: 100.0% | 1.0 / 1.0 KiB | Peak: 100.0%");
+		EXPECT_EQ(lines[3].pressure, Pressure::Critical);
 	}
 
 	TEST_F(NA228MonitorTest, WalksAllPoolsAndKeepsTheirPeaksSeparate)
@@ -349,6 +368,7 @@ namespace
 		EXPECT_FALSE(snapshot.pool_list_readable);
 		ASSERT_EQ(snapshot.pools.size(), 1u);
 		EXPECT_TRUE(snapshot.pools[0].readable);
+		EXPECT_EQ(Format(snapshot).back().text, "Render pool list: unreadable");
 	}
 
 	TEST_F(NA228MonitorTest, ContinuesToNextPoolAfterUnreadableBlocks)
