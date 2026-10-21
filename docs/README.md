@@ -6,6 +6,15 @@ documented by the PCSX2 project.
 
 Start File Directory (`StartFile` in `[Folders]`) sets the Start File folder; when empty or missing, it uses the last folder used.
 
+`InputProfileName` in `PCSX2.ini`'s `[EmuCore]` names a default input profile
+that replaces the shared input settings: it is active from startup, between
+games, and in every game whose settings name no other profile. Controller
+Settings then lists only input profiles and opens on the active one, and Game
+Properties calls the no-profile choice "Default". When the key is empty or
+names a missing profile, the shared settings apply as upstream. The
+implementation is in `pcsx2/VMManager.cpp` and
+`pcsx2-qt/Settings/ControllerSettingsWindow.cpp`.
+
 - [Launch options](launch_options.md): command-line options for windows,
   speed, settings, memory cards, PINE, and agent replay.
 - [Input recording capture](input_recording_capture.md): recording paths,

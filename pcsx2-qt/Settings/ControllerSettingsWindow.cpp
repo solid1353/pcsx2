@@ -31,7 +31,10 @@ ControllerSettingsWindow::ControllerSettingsWindow()
 	setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
 	refreshProfileList();
-	createWidgets();
+	if (hasSharedProfile())
+		createWidgets();
+	else
+		switchProfile({});
 
 	m_ui.settingsCategory->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Minimum);
 	connect(m_ui.settingsCategory, &QListWidget::currentRowChanged, this, &ControllerSettingsWindow::onCategoryCurrentRowChanged);
@@ -97,7 +100,7 @@ void ControllerSettingsWindow::onCategoryCurrentRowChanged(int row)
 
 void ControllerSettingsWindow::onCurrentProfileChanged(int index)
 {
-	switchProfile((index == 0) ? 0 : m_ui.currentProfile->itemText(index));
+	switchProfile((hasSharedProfile() && index == 0) ? QString() : m_ui.currentProfile->itemText(index));
 }
 
 void ControllerSettingsWindow::onNewProfileClicked()
@@ -512,7 +515,7 @@ void ControllerSettingsWindow::createWidgets()
 		m_ui.settingsContainer->addWidget(m_hotkey_settings);
 	}
 
-	m_ui.applyProfile->setEnabled(isEditingProfile());
+	m_ui.applyProfile->setEnabled(isEditingProfile() && hasSharedProfile());
 	m_ui.renameProfile->setEnabled(isEditingProfile());
 	m_ui.deleteProfile->setEnabled(isEditingProfile());
 	m_ui.restoreDefaults->setEnabled(isEditingGlobalSettings());
@@ -572,10 +575,13 @@ void ControllerSettingsWindow::refreshProfileList()
 
 	QSignalBlocker sb(m_ui.currentProfile);
 	m_ui.currentProfile->clear();
-	//: "Shared" refers here to the shared input profile.
-	m_ui.currentProfile->addItem(tr("Shared"));
-	if (isEditingGlobalSettings())
-		m_ui.currentProfile->setCurrentIndex(0);
+	if (hasSharedProfile())
+	{
+		//: "Shared" refers here to the shared input profile.
+		m_ui.currentProfile->addItem(tr("Shared"));
+		if (isEditingGlobalSettings())
+			m_ui.currentProfile->setCurrentIndex(0);
+	}
 
 	for (const std::string& name : names)
 	{
@@ -593,10 +599,19 @@ void ControllerSettingsWindow::selectActiveProfile()
 		switchProfile(name);
 }
 
-void ControllerSettingsWindow::switchProfile(const QString& name)
+bool ControllerSettingsWindow::hasSharedProfile() const
+{
+	return VMManager::GetDefaultInputProfileName().empty();
+}
+
+void ControllerSettingsWindow::switchProfile(const QString& requested_name)
 {
 	QSignalBlocker sb(m_ui.currentProfile);
 
+	// Without shared settings, the default input profile stands in for them.
+	const QString name = (requested_name.isEmpty() && !hasSharedProfile()) ?
+							 QString::fromStdString(VMManager::GetDefaultInputProfileName()) :
+							 requested_name;
 	if (!name.isEmpty())
 	{
 		std::string path(VMManager::GetInputProfilePath(name.toStdString()));
