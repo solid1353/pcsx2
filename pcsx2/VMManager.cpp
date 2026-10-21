@@ -466,6 +466,9 @@ bool VMManager::Internal::CPUThreadInitialize()
 
 	USBinit();
 
+	// Activate the default input profile before any bindings load, so it applies outside games too.
+	UpdateGameSettingsLayer();
+
 	// We want settings loaded so we choose the correct renderer for big picture mode.
 	// This also sorts out input sources.
 	LoadSettings();
@@ -1018,6 +1021,17 @@ std::string VMManager::GetInputProfilePath(const std::string_view name)
 	return Path::Combine(EmuFolders::InputProfiles, fmt::format("{}.ini", name));
 }
 
+std::string VMManager::GetDefaultInputProfileName()
+{
+	std::string name = Host::GetBaseStringSettingValue("EmuCore", "InputProfileName");
+	if (!name.empty() && !FileSystem::FileExists(GetInputProfilePath(name).c_str()))
+	{
+		Console.Error(fmt::format("Default input profile '{}' not found, using the shared settings.", name));
+		name.clear();
+	}
+	return name;
+}
+
 std::string VMManager::GetDebuggerSettingsFilePath(const std::string_view game_serial, u32 game_crc)
 {
 	std::string path;
@@ -1189,6 +1203,8 @@ bool VMManager::UpdateGameSettingsLayer()
 	std::string input_profile_name;
 	if (new_interface)
 		new_interface->GetStringValue("EmuCore", "InputProfileName", &input_profile_name);
+	if (input_profile_name.empty())
+		input_profile_name = GetDefaultInputProfileName();
 
 	if (!s_game_settings_interface && !new_interface && s_input_profile_name == input_profile_name)
 		return false;

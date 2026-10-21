@@ -12,6 +12,7 @@
 #include "pcsx2/CDVD/IsoHasher.h"
 #include "pcsx2/GameDatabase.h"
 #include "pcsx2/GameList.h"
+#include "pcsx2/VMManager.h"
 
 #include "common/Error.h"
 #include "common/MD5Digest.h"
@@ -59,6 +60,10 @@ GameSummaryWidget::~GameSummaryWidget() = default;
 
 void GameSummaryWidget::populateInputProfiles()
 {
+	// Without a game profile, games use the default input profile when PCSX2.ini names one.
+	if (!VMManager::GetDefaultInputProfileName().empty())
+		m_ui.inputProfile->setItemText(0, tr("Default"));
+
 	for (const std::string& name : Pad::GetInputProfileNames())
 		m_ui.inputProfile->addItem(QString::fromStdString(name));
 }

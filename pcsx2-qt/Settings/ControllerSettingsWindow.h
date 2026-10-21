@@ -67,7 +67,7 @@ public:
 	void clearSettingValue(const char* section, const char* key);
 	void saveAndReloadGameSettings();
 
-	/// Selects the running game's input profile, or the shared settings when it has none.
+	/// Selects the active input profile, or the shared settings when none is active.
 	void selectActiveProfile();
 
 Q_SIGNALS:
@@ -98,7 +98,8 @@ protected:
 
 private:
 	void refreshProfileList();
-	void switchProfile(const QString& name);
+	bool hasSharedProfile() const;
+	void switchProfile(const QString& requested_name);
 
 	Ui::ControllerSettingsWindow m_ui;
 

@@ -270,8 +270,12 @@ namespace VMManager
 	/// Returns the path for the input profile ini file with the specified name (may not exist).
 	std::string GetInputProfilePath(const std::string_view name);
 
-	/// Returns the name of the input profile the current game uses, or an empty string for the shared settings.
+	/// Returns the name of the active input profile, or an empty string for the shared settings.
 	std::string GetInputProfileName();
+
+	/// Returns the existing input profile that PCSX2.ini names as the default, or an empty string when there is none.
+	/// While one is set, it replaces the shared settings.
+	std::string GetDefaultInputProfileName();
 
 	/// Returns the path for the debugger settings json file for the specified game serial and CRC.
 	std::string GetDebuggerSettingsFilePath(const std::string_view game_serial, u32 game_crc);
