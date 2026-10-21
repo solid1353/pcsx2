@@ -45,10 +45,10 @@ reset switches back to Unlimited.
 
 | Option | Effect |
 | --- | --- |
-| `-memory-card <path>` | Uses an existing card file as the port 1 card, enabled as a file card. Other slots keep their settings. |
+| `-memory-card <path>` | Uses an existing card file or folder card as the port 1 card: a file as a file card, a folder as a folder card. Other slots keep their settings. |
 | `-memory-card none` | Disconnects every slot, including multitap slots. `none` is case-insensitive; give a path to use a file named `none`. |
 | `-discard-memory-card-writes` | Reports every memory card write and erase as successful without changing any card. |
-| `-volatile-memory-card` | Keeps file card changes in RAM for the life of the process. |
+| `-volatile-memory-card` | Keeps file card changes in RAM for the life of the process. Folder card changes stay in memory and are dropped when the card is closed or reindexed (game boot or emulation stop). |
 
 When `-memory-card` is repeated, the last one applies.
 
@@ -62,7 +62,8 @@ In volatile mode, each file card is read once into RAM and later reads see
 the writes and erases made during the process, including after the card is
 reopened. A missing or empty card file starts as a blank 8 MB card in RAM, and
 raw `.bin` or `.mc2` cards are converted in RAM. Source files are never
-written. Folder cards are disconnected with a warning.
+written. Folder card changes stay in memory and are dropped when the card is
+closed or reindexed (game boot or emulation stop), without writing to its folder.
 
 `-volatile-memory-card` cannot be combined with
 `-discard-memory-card-writes`, and it replaces the discard mode that
@@ -84,4 +85,4 @@ the VM shuts down, for example after the PINE shutdown opcode.
 
 `tests/ctest/core/memory_card_tests.cpp` covers volatile cards: RAM-only
 writes and erases across reopens, missing cards, raw card conversion, and
-disconnected folder cards.
+folder card changes retained across frames and dropped on close or reindex.

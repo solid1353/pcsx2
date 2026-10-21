@@ -790,16 +790,6 @@ void FileMcd_SetType()
 			const std::string path(EmuConfig.FullpathToMcd(slot));
 			if (FileSystem::DirectoryExists(path.c_str()))
 			{
-				if (s_volatile_mode)
-				{
-					EmuConfig.Mcd[slot].Enabled = false;
-					EmuConfig.Mcd[slot].Type = MemoryCardType::Empty;
-					Console.Warning("McdSlot %u: folder card disabled in volatile mode: %s", slot, path.c_str());
-					Host::AddIconOSDMessage(fmt::format("VolatileMemoryCardFolder{}", slot), ICON_PF_MEMORY_CARD,
-						fmt::format("Folder memory card '{}' is disconnected in volatile mode.", Path::GetFileName(path)),
-						Host::OSD_WARNING_DURATION);
-					continue;
-				}
 				type = MemoryCardType::Folder;
 			}
 
