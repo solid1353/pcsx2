@@ -1206,7 +1206,9 @@ bool VMManager::UpdateGameSettingsLayer()
 	if (input_profile_name.empty())
 		input_profile_name = GetDefaultInputProfileName();
 
-	if (!s_game_settings_interface && !new_interface && s_input_profile_name == input_profile_name)
+	// An active input profile is reread every time, so edits saved to it apply without a restart.
+	if (!s_game_settings_interface && !new_interface && s_input_profile_name == input_profile_name &&
+		input_profile_name.empty())
 		return false;
 
 	auto lock = Host::GetSettingsLock();
