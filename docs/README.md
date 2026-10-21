@@ -8,7 +8,9 @@ Start File Directory (`StartFile` in `[Folders]`) sets the Start File folder; wh
 
 `InputProfileName` in `PCSX2.ini`'s `[EmuCore]` names a default input profile
 that replaces the shared input settings: it is active from startup, between
-games, and in every game whose settings name no other profile. Controller
+games, and in every game whose settings name no other profile. PCSX2 rereads
+the active profile whenever it reloads settings, including at every game start
+and stop, so saved edits apply without a restart. Controller
 Settings then lists only input profiles and opens on the active one, and Game
 Properties calls the no-profile choice "Default". When the key is empty or
 names a missing profile, the shared settings apply as upstream. The
