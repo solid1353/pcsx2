@@ -2070,10 +2070,6 @@ std::string Pcsx2Config::FullpathToMcd(uint slot) const
 	if (slot == 0 && !CurrentMemoryCardPath.empty())
 		return CurrentMemoryCardPath;
 
-	const std::string_view alias = Path::GetFileTitle(Mcd[slot].Filename);
-	if (EmuFolders::IsContentAlias(alias))
-		return EmuFolders::FindContentAliasFile(alias, ".ps2");
-
 	return EmuFolders::FindPathInContentFolders(EmuFolders::MemoryCards, Mcd[slot].Filename);
 }
 
@@ -2381,34 +2377,20 @@ std::string EmuFolders::FindContentAliasFile(const std::string_view alias, const
 	if (!IsContentAlias(alias))
 		return {};
 
-	std::string bundle;
+	const std::string filename = fmt::format("{}{}", alias, extension);
+	std::string result;
 	for (const std::string& folder : AdditionalContentFolders)
 	{
-		const std::string path = Path::Combine(Path::Combine(folder, "games"), alias);
-		if (!FileSystem::DirectoryExists(path.c_str()))
+		const std::string path = Path::Combine(Path::Combine(folder, "games"), filename);
+		if (!FileSystem::FileExists(path.c_str()))
 			continue;
-		if (!bundle.empty() && !PathsEqual(bundle, path))
+		if (!result.empty() && !PathsEqual(result, path))
 		{
-			Console.Error("Registered content alias '%.*s' exists in multiple additional content folders; refusing ambiguous content.",
-				static_cast<int>(alias.size()), alias.data());
+			Console.Error("Content alias file '%s' exists in multiple additional content folders; refusing ambiguous content.",
+				filename.c_str());
 			return {};
 		}
-		bundle = path;
-	}
-
-	if (bundle.empty())
-	{
-		Console.Error("Registered content alias '%.*s' has no bundle in the additional content folders.",
-			static_cast<int>(alias.size()), alias.data());
-		return {};
-	}
-
-	const std::string result = Path::Combine(bundle, fmt::format("{}{}", alias, extension));
-	if (!FileSystem::FileExists(result.c_str()))
-	{
-		Console.Error("Registered content alias '%.*s' is missing its '%.*s' file.",
-			static_cast<int>(alias.size()), alias.data(), static_cast<int>(extension.size()), extension.data());
-		return {};
+		result = path;
 	}
 	return result;
 }
