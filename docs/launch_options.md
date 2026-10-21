@@ -52,8 +52,8 @@ reset switches back to Unlimited.
 
 When `-memory-card` is repeated, the last one applies.
 
-Outside volatile mode, file cards are opened with shared access, so other
-processes can open the same file. In discard mode they are opened read-only,
+Outside volatile mode, file cards and folder cards' files are opened with shared
+access, so other processes can open the same file. In discard mode they are opened read-only,
 the card checksum is not written back, and the memory card never reports
 busy, so savestates, state loads, and shutdown are not blocked by card
 activity.

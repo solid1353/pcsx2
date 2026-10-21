@@ -27,7 +27,11 @@
 // A helper function to parse the YAML file
 static std::optional<ryml::Tree> loadYamlFile(const char* filePath)
 {
-	const std::optional<std::string> buffer = FileSystem::ReadFileToString(filePath);
+	auto file = FileSystem::OpenManagedSharedCFile(filePath, "rb", FileSystem::FileShareMode::DenyNone);
+	if (!file)
+		return std::nullopt;
+
+	const std::optional<std::string> buffer = FileSystem::ReadFileToString(file.get());
 	if (!buffer.has_value())
 		return std::nullopt;
 
@@ -56,7 +60,7 @@ static std::optional<ryml::Tree> loadYamlFile(const char* filePath)
 /// A helper function to write a YAML file
 static void SaveYAMLToFile(const char* filename, const ryml::NodeRef& node)
 {
-	auto file = FileSystem::OpenCFile(filename, "w");
+	auto file = FileSystem::OpenSharedCFile(filename, "w", FileSystem::FileShareMode::DenyNone);
 	ryml::emit_yaml(node, file);
 	std::fflush(file);
 	std::fclose(file);
@@ -237,7 +241,7 @@ void FolderMemoryCard::LoadMemoryCardData(const u32 sizeInClusters, const bool e
 	const std::string superBlockFileName(Path::Combine(m_folderName, "_pcsx2_superblock"));
 	if (FileSystem::FileExists(superBlockFileName.c_str()))
 	{
-		auto superBlockFile = FileSystem::OpenManagedCFile(superBlockFileName.c_str(), "rb");
+		auto superBlockFile = FileSystem::OpenManagedSharedCFile(superBlockFileName.c_str(), "rb", FileSystem::FileShareMode::DenyNone);
 		if (superBlockFile && std::fread(&m_superBlock.raw, sizeof(m_superBlock.raw), 1, superBlockFile.get()) == 1)
 		{
 			formatted = IsFormatted();
@@ -505,7 +509,7 @@ bool FolderMemoryCard::AddFolder(MemoryCardFileEntry* const dirEntry, const std:
 
 				// set metadata
 				const std::string metaFileName(Path::Combine(Path::Combine(dirPath, file.m_fileName), "_pcsx2_meta_directory"));
-				if (auto metaFile = FileSystem::OpenManagedCFile(metaFileName.c_str(), "rb"); metaFile)
+				if (auto metaFile = FileSystem::OpenManagedSharedCFile(metaFileName.c_str(), "rb", FileSystem::FileShareMode::DenyNone); metaFile)
 				{
 					if (std::fread(&newDirEntry->entry.raw, 1, sizeof(newDirEntry->entry.raw), metaFile.get()) < 0x60)
 					{
@@ -558,7 +562,7 @@ bool FolderMemoryCard::AddFile(MemoryCardFileEntry* const dirEntry, const std::s
 	pxAssertMsg(filePath.starts_with(m_folderName), "Full file path starts with MC folder path");
 	const std::string relativeFilePath(filePath.substr(m_folderName.length() + 1));
 
-	if (auto file = FileSystem::OpenManagedCFile(filePath.c_str(), "rb"); file)
+	if (auto file = FileSystem::OpenManagedSharedCFile(filePath.c_str(), "rb", FileSystem::FileShareMode::DenyNone); file)
 	{
 		// make sure we have enough space on the memcard to hold the data
 		const u32 clusterSize = m_superBlock.data.pages_per_cluster * m_superBlock.data.page_len;
@@ -577,7 +581,7 @@ bool FolderMemoryCard::AddFile(MemoryCardFileEntry* const dirEntry, const std::s
 		memset(newFileEntry->entry.raw, 0x00, sizeof(newFileEntry->entry.raw));
 
 		std::string metaFileName(Path::Combine(Path::Combine(dirPath, "_pcsx2_meta"), fileEntry.m_fileName));
-		if (auto metaFile = FileSystem::OpenManagedCFile(metaFileName.c_str(), "rb"); metaFile)
+		if (auto metaFile = FileSystem::OpenManagedSharedCFile(metaFileName.c_str(), "rb", FileSystem::FileShareMode::DenyNone); metaFile)
 		{
 			size_t bytesRead = std::fread(&newFileEntry->entry.raw, 1, sizeof(newFileEntry->entry.raw), metaFile.get());
 			if (bytesRead < 0x60)
@@ -1198,7 +1202,7 @@ void FolderMemoryCard::FlushSuperBlock()
 	if (FlushBlock(0) && m_performFileWrites)
 	{
 		const std::string superBlockFileName(Path::Combine(m_folderName, "_pcsx2_superblock"));
-		if (auto superBlockFile = FileSystem::OpenManagedCFile(superBlockFileName.c_str(), "wb"); superBlockFile)
+		if (auto superBlockFile = FileSystem::OpenManagedSharedCFile(superBlockFileName.c_str(), "wb", FileSystem::FileShareMode::DenyNone); superBlockFile)
 		{
 			std::fwrite(&m_superBlock.raw, sizeof(m_superBlock.raw), 1, superBlockFile.get());
 		}
@@ -1252,7 +1256,7 @@ void FolderMemoryCard::FlushFileEntries(const u32 dirCluster, const u32 remainin
 						// TODO: This logic doesn't make sense. If it's not a directory, create it, then open it as a file?!
 						if (filenameCleaned || entry->entry.data.mode != MemoryCardFileEntry::DefaultDirMode || entry->entry.data.attr != 0)
 						{
-							if (auto metaFile = FileSystem::OpenManagedCFile(metaFileName.c_str(), "wb"); metaFile)
+							if (auto metaFile = FileSystem::OpenManagedSharedCFile(metaFileName.c_str(), "wb", FileSystem::FileShareMode::DenyNone); metaFile)
 							{
 								std::fwrite(entry->entry.raw, sizeof(entry->entry.raw), 1, metaFile.get());
 							}
@@ -1341,7 +1345,7 @@ void FolderMemoryCard::FlushFileEntries(const u32 dirCluster, const u32 remainin
 								FileSystem::CreateDirectoryPath(fullDirPath.c_str(), false);
 							}
 
-							auto createEmptyFile = FileSystem::OpenManagedCFile(fn.c_str(), "wb");
+							auto createEmptyFile = FileSystem::OpenManagedSharedCFile(fn.c_str(), "wb", FileSystem::FileShareMode::DenyNone);
 						}
 					}
 				}
@@ -1746,7 +1750,7 @@ void FolderMemoryCard::AttemptToRecreateIndexFile(const std::string& directory) 
 
 	root["$ROOT"]["timeModified"] << currTime;
 
-	auto file = FileSystem::OpenManagedCFile(Path::Combine(directory, "_pcsx2_index").c_str(), "w");
+	auto file = FileSystem::OpenManagedSharedCFile(Path::Combine(directory, "_pcsx2_index").c_str(), "w", FileSystem::FileShareMode::DenyNone);
 	if (file)
 		ryml::emit_yaml(tree, file.get());
 }
@@ -1954,7 +1958,7 @@ void FolderMemoryCard::CalculateECC(u8* ecc, const u8* data)
 
 void FolderMemoryCard::WriteToFile(const std::string& filename)
 {
-	auto targetFile = FileSystem::OpenManagedCFile(filename.c_str(), "wb");
+	auto targetFile = FileSystem::OpenManagedSharedCFile(filename.c_str(), "wb", FileSystem::FileShareMode::DenyNone);
 	if (!targetFile)
 	{
 		Console.Error("(FolderMemoryCard::WriteToFile) Failed to open '%s'.", filename.c_str());
@@ -1992,10 +1996,10 @@ std::FILE* FileAccessHelper::Open(const std::string_view folderName, MemoryCardF
 		if (!FileSystem::DirectoryExists(directory.c_str()))
 			FileSystem::CreateDirectoryPath(directory.c_str(), true);
 
-		auto createEmptyFile = FileSystem::OpenManagedCFile(filename.c_str(), "wb");
+		auto createEmptyFile = FileSystem::OpenManagedSharedCFile(filename.c_str(), "wb", FileSystem::FileShareMode::DenyNone);
 	}
 
-	std::FILE* file = FileSystem::OpenCFile(filename.c_str(), "r+b");
+	std::FILE* file = FileSystem::OpenSharedCFile(filename.c_str(), "r+b", FileSystem::FileShareMode::DenyNone);
 
 	std::string internalPath;
 	fileRef->GetInternalPath(&internalPath);
@@ -2031,7 +2035,7 @@ void FileAccessHelper::WriteMetadata(const std::string_view folderName, const Me
 			FileSystem::CreateDirectoryPath(metaDirName.c_str(), false);
 		}
 
-		auto metaFile = FileSystem::OpenManagedCFile(metaFileName.c_str(), "wb");
+		auto metaFile = FileSystem::OpenManagedSharedCFile(metaFileName.c_str(), "wb", FileSystem::FileShareMode::DenyNone);
 		if (metaFile)
 			std::fwrite(entry->raw, sizeof(entry->raw), 1, metaFile.get());
 	}
