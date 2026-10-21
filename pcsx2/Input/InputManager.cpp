@@ -108,6 +108,7 @@ namespace InputManager
 
 	static bool IsAxisHandler(const InputEventHandler& handler);
 	static bool IsKeyboardAxisBinding(const InputBinding* binding);
+	static bool IsShadowedByActiveChord(const InputBinding* binding);
 	static float ApplySingleBindingScale(float sensitivity, float deadzone, float value);
 
 	static void AddHotkeyBindings(SettingsInterface& si, bool is_profile);
@@ -1120,6 +1121,37 @@ bool InputManager::IsKeyboardAxisBinding(const InputBinding* binding)
 	return true;
 }
 
+bool InputManager::IsShadowedByActiveChord(const InputBinding* binding)
+{
+	// A fully held longer chord that contains every key of this binding takes the input.
+	for (u32 i = 0; i < binding->num_keys; i++)
+	{
+		const auto related = s_binding_map.equal_range(binding->keys[i].MaskDirection());
+		for (auto other = related.first; other != related.second; ++other)
+		{
+			const InputBinding* longer = other->second.get();
+			if (longer == binding || longer->num_keys <= binding->num_keys ||
+				longer->current_mask != longer->full_mask)
+			{
+				continue;
+			}
+
+			bool contains_binding = true;
+			for (u32 j = 0; j < binding->num_keys; j++)
+			{
+				bool found = false;
+				for (u32 k = 0; k < longer->num_keys; k++)
+					found |= (binding->keys[j].MaskDirection() == longer->keys[k].MaskDirection());
+				contains_binding &= found;
+			}
+			if (contains_binding)
+				return true;
+		}
+	}
+
+	return false;
+}
+
 bool InputManager::InvokeEvents(InputBindingKey key, float value, GenericInputBinding generic_key,
 	GenericInputBinding axis_neg_key, GenericInputBinding axis_pos_key)
 {
@@ -1187,7 +1219,11 @@ bool InputManager::ProcessEvent(InputBindingKey key, float value, bool skip_butt
 					binding->axis_values[i] = active ? value_to_pass : 0.0f;
 				}
 				else if (value_to_pass >= 0.0f && (!skip_button_handlers || value_to_pass == 0.0f))
-					std::get<InputAxisEventHandler>(binding->handler)(key, value_to_pass);
+				{
+					// Controller pad inputs that are part of a held hotkey chord stay released.
+					std::get<InputAxisEventHandler>(binding->handler)(
+						key, IsShadowedByActiveChord(binding) ? 0.0f : value_to_pass);
+				}
 			}
 			else if (binding->num_keys >= min_num_keys)
 			{
@@ -1216,9 +1252,15 @@ bool InputManager::ProcessEvent(InputBindingKey key, float value, bool skip_butt
 						for (auto it = range.first; it != range.second; ++it)
 						{
 							InputBinding* other_binding = it->second.get();
-							if (other_binding == binding || IsAxisHandler(other_binding->handler) ||
-								other_binding->num_keys >= binding->num_keys)
+							if (other_binding == binding || other_binding->num_keys >= binding->num_keys)
+								continue;
+
+							// Release controller pad inputs this chord took over; keyboard axis bindings are
+							// recomputed below. Needs proper testing with analog inputs inside chords.
+							if (IsAxisHandler(other_binding->handler))
 							{
+								if (!IsKeyboardAxisBinding(other_binding) && IsShadowedByActiveChord(other_binding))
+									std::get<InputAxisEventHandler>(other_binding->handler)(other_binding->keys[0], 0.0f);
 								continue;
 							}
 
