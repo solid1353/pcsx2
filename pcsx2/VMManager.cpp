@@ -3853,8 +3853,6 @@ void VMManager::WarnAboutUnsafeSettings()
 	}
 	if (EmuConfig.GS.FramerateNTSC != Pcsx2Config::GSOptions::DEFAULT_FRAME_RATE_NTSC)
 		append(ICON_FA_TV, TRANSLATE_SV("VMManager", "Frame rate for NTSC is not default. This may break some games."));
-	if (EmuConfig.GS.FrameratePAL != Pcsx2Config::GSOptions::DEFAULT_FRAME_RATE_PAL)
-		append(ICON_FA_TV, TRANSLATE_SV("VMManager", "Frame rate for PAL is not default. This may break some games."));
 
 	if (!messages.empty())
 	{
