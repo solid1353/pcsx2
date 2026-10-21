@@ -16,6 +16,14 @@ macro(add_pcsx2_test target)
 	add_dependencies(unittests ${target})
 	add_test(NAME ${target} COMMAND ${target})
 
+	# Windows finds the dependency DLLs through PATH, not next to the test executable.
+	if(WIN32 AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
+		foreach(prefix IN LISTS CMAKE_PREFIX_PATH)
+			file(TO_NATIVE_PATH "${prefix}/bin" prefix_bin)
+			set_property(TEST ${target} APPEND PROPERTY ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${prefix_bin}")
+		endforeach()
+	endif()
+
 	if(MSVC AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
 		# For some reason, the stack refuses to grow with the latest MSVC updates.
 		# Just force the commit size to 1MB for now.
