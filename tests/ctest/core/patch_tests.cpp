@@ -222,20 +222,20 @@ TEST(Patch, DiscoversCheatsInOrderedAdditionalContentFolders)
 	EXPECT_EQ(info[2].name, "Second");
 }
 
-TEST(Patch, ResolvesCheatsAndGameSettingsByConfiguredContentAlias)
+TEST(Patch, ResolvesContentAliasFilesIndependentlyAcrossFolders)
 {
 	const std::filesystem::path test_directory = std::filesystem::current_path() /
 	                                             ("content-alias-test-" +
 													 std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
 	const std::filesystem::path primary_directory = test_directory / "primary";
 	const std::filesystem::path additional_directory = test_directory / "additional";
-	const std::filesystem::path nested_directory = additional_directory / "games" / "UN5";
-	ASSERT_TRUE(std::filesystem::create_directories(primary_directory));
-	ASSERT_TRUE(std::filesystem::create_directories(nested_directory));
+	const std::filesystem::path second_directory = test_directory / "second";
+	ASSERT_TRUE(std::filesystem::create_directories(primary_directory / "games"));
+	ASSERT_TRUE(std::filesystem::create_directories(additional_directory / "games"));
+	ASSERT_TRUE(std::filesystem::create_directories(second_directory / "games"));
 
 	const std::string old_cheats_directory = EmuFolders::Cheats;
 	const std::string old_game_settings_directory = EmuFolders::GameSettings;
-	const std::string old_memory_cards_directory = EmuFolders::MemoryCards;
 	const std::vector<std::string> old_additional_content_folders = EmuFolders::AdditionalContentFolders;
 	const std::vector<std::pair<std::string, std::string>> old_content_aliases = EmuFolders::ContentAliases;
 	struct Cleanup
@@ -243,20 +243,18 @@ TEST(Patch, ResolvesCheatsAndGameSettingsByConfiguredContentAlias)
 		std::filesystem::path directory;
 		std::string cheats_directory;
 		std::string game_settings_directory;
-		std::string memory_cards_directory;
 		std::vector<std::string> additional_content_folders;
 		std::vector<std::pair<std::string, std::string>> content_aliases;
 		~Cleanup()
 		{
 			EmuFolders::Cheats = std::move(cheats_directory);
 			EmuFolders::GameSettings = std::move(game_settings_directory);
-			EmuFolders::MemoryCards = std::move(memory_cards_directory);
 			EmuFolders::AdditionalContentFolders = std::move(additional_content_folders);
 			EmuFolders::ContentAliases = std::move(content_aliases);
 			std::error_code error;
 			std::filesystem::remove_all(directory, error);
 		}
-	} cleanup{test_directory, old_cheats_directory, old_game_settings_directory, old_memory_cards_directory,
+	} cleanup{test_directory, old_cheats_directory, old_game_settings_directory,
 		old_additional_content_folders, old_content_aliases};
 
 	MemorySettingsInterface settings;
@@ -271,25 +269,20 @@ TEST(Patch, ResolvesCheatsAndGameSettingsByConfiguredContentAlias)
 	EXPECT_EQ(EmuFolders::GetContentIdentitySerial("SLES-55605", 0x12345678), "UN5_Fallback");
 	EXPECT_EQ(EmuFolders::GetContentIdentitySerial("SLUS-INVALID", 0), "SLUS-INVALID");
 
-	const std::filesystem::path alias_cheat = nested_directory / "UN5.pnach";
+	const std::filesystem::path alias_cheat = additional_directory / "games" / "UN5.pnach";
 	const std::filesystem::path serial_cheat = primary_directory / "SLES-55605_C071D4C1.pnach";
 	std::ofstream(alias_cheat) << "[Alias]\npatch=1,EE,00100000,word,00000001\n";
 	std::ofstream(serial_cheat) << "[Serial]\npatch=1,EE,00100004,word,00000002\n";
-	const std::filesystem::path alias_settings = nested_directory / "UN5.ini";
+	const std::filesystem::path alias_settings = second_directory / "games" / "UN5.ini";
 	const std::filesystem::path serial_settings = primary_directory / "SLES-55605_C071D4C1.ini";
 	std::ofstream(alias_settings) << "[EmuCore]\nEnableCheats = true\n";
 	std::ofstream(serial_settings) << "[EmuCore]\nEnableCheats = false\n";
-	const std::filesystem::path alias_card = nested_directory / "UN5.ps2";
-	{
-		std::ofstream card(alias_card, std::ios::binary);
-		card.seekp((1024 * 1024) - 1);
-		card.put('\0');
-	}
+	std::ofstream(primary_directory / "games" / "UN5.pnach") << "[Primary Alias]\npatch=1,EE,00100004,word,00000002\n";
+	std::ofstream(primary_directory / "games" / "UN5.ini") << "[EmuCore]\nEnableCheats = false\n";
 
 	EmuFolders::Cheats = primary_directory.string();
 	EmuFolders::GameSettings = primary_directory.string();
-	EmuFolders::MemoryCards = primary_directory.string();
-	EmuFolders::AdditionalContentFolders = {additional_directory.string()};
+	EmuFolders::AdditionalContentFolders = {additional_directory.string(), second_directory.string()};
 	const std::vector<Patch::PatchInfo> info = Patch::GetPatchInfo("SLES-55605", 0xC071D4C1, true, false, nullptr);
 	ASSERT_EQ(info.size(), 1u);
 	EXPECT_EQ(info[0].name, "Alias");
@@ -297,33 +290,37 @@ TEST(Patch, ResolvesCheatsAndGameSettingsByConfiguredContentAlias)
 		alias_cheat.string());
 	EXPECT_EQ(VMManager::GetGameSettingsPath("SLES-55605", 0xC071D4C1), alias_settings.string());
 	EXPECT_TRUE(VMManager::GetGameSettingsSectionPrefix("SLES-55605", 0xC071D4C1).empty());
-	Pcsx2Config config;
-	config.Mcd[0].Filename = "UN5.ps2";
-	EXPECT_EQ(config.FullpathToMcd(0), alias_card.string());
-	const std::vector<AvailableMcdInfo> cards = FileMcd_GetAvailableCards(true);
-	const auto alias_card_info = std::find_if(cards.begin(), cards.end(),
-		[](const AvailableMcdInfo& card) { return card.name == "UN5.ps2"; });
-	ASSERT_NE(alias_card_info, cards.end());
-	EXPECT_EQ(alias_card_info->path, alias_card.string());
 
 	std::filesystem::remove(alias_cheat);
 	EXPECT_TRUE(Patch::GetPnachFilename("SLES-55605", 0xC071D4C1, true).empty());
 	EXPECT_TRUE(Patch::GetPatchInfo("SLES-55605", 0xC071D4C1, true, false, nullptr).empty());
+	EXPECT_EQ(VMManager::GetGameSettingsPath("SLES-55605", 0xC071D4C1), alias_settings.string());
 	std::filesystem::remove(alias_settings);
 	EXPECT_TRUE(VMManager::GetGameSettingsPath("SLES-55605", 0xC071D4C1).empty());
-	std::filesystem::remove(alias_card);
-	EXPECT_TRUE(config.FullpathToMcd(0).empty());
+	EXPECT_EQ(EmuFolders::GetContentAlias("SLES-55605", 0xC071D4C1), "UN5");
+	EXPECT_EQ(EmuFolders::GetContentIdentitySerial("SLES-55605", 0xC071D4C1), "SLES-55605");
+	EXPECT_EQ(EmuFolders::GetContentIdentitySerial("SLES-55605", 0x12345678), "UN5_Fallback");
+	EXPECT_TRUE(VMManager::GetGameSettingsPath("SLES-55605", 0x12345678).empty());
+	EXPECT_TRUE(Patch::GetPnachFilename("SLES-55605", 0x12345678, true).empty());
+
+	const std::filesystem::path old_directory = additional_directory / "games" / "UN5";
+	ASSERT_TRUE(std::filesystem::create_directory(old_directory));
+	std::ofstream(old_directory / "UN5.ini") << "[EmuCore]\nEnableCheats = true\n";
+	std::ofstream(old_directory / "UN5.pnach") << "[Old Alias]\npatch=1,EE,00100000,word,00000001\n";
+	EXPECT_TRUE(VMManager::GetGameSettingsPath("SLES-55605", 0xC071D4C1).empty());
+	EXPECT_TRUE(Patch::GetPnachFilename("SLES-55605", 0xC071D4C1, true).empty());
+	EXPECT_TRUE(Patch::GetPatchInfo("SLES-55605", 0xC071D4C1, true, false, nullptr).empty());
 }
 
-TEST(Patch, RejectsDuplicateRegisteredContentAliases)
+TEST(Patch, RejectsDuplicateContentAliasFilesIndependently)
 {
 	const std::filesystem::path test_directory = std::filesystem::current_path() /
 	                                             ("duplicate-content-alias-test-" +
 												 std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-	const std::filesystem::path first_bundle = test_directory / "first" / "games" / "UN5";
-	const std::filesystem::path second_bundle = test_directory / "second" / "games" / "UN5";
-	ASSERT_TRUE(std::filesystem::create_directories(first_bundle));
-	ASSERT_TRUE(std::filesystem::create_directories(second_bundle));
+	const std::filesystem::path first_games = test_directory / "first" / "games";
+	const std::filesystem::path second_games = test_directory / "second" / "games";
+	ASSERT_TRUE(std::filesystem::create_directories(first_games));
+	ASSERT_TRUE(std::filesystem::create_directories(second_games));
 
 	const auto old_additional_content_folders = EmuFolders::AdditionalContentFolders;
 	const auto old_content_aliases = EmuFolders::ContentAliases;
@@ -343,21 +340,28 @@ TEST(Patch, RejectsDuplicateRegisteredContentAliases)
 
 	EmuFolders::AdditionalContentFolders = {(test_directory / "first").string(), (test_directory / "second").string()};
 	EmuFolders::ContentAliases = {{"SLES-55605_C071D4C1", "UN5"}};
-	for (const std::filesystem::path& bundle : {first_bundle, second_bundle})
+	for (const std::filesystem::path& games : {first_games, second_games})
 	{
-		std::ofstream(bundle / "UN5.pnach") << "[Alias]\npatch=1,EE,00100000,word,00000001\n";
-		std::ofstream(bundle / "UN5.ini") << "[EmuCore]\nEnableCheats = true\n";
-		std::ofstream card(bundle / "UN5.ps2", std::ios::binary);
-		card.seekp((1024 * 1024) - 1);
-		card.put('\0');
+		std::ofstream(games / "UN5.pnach") << "[Alias]\npatch=1,EE,00100000,word,00000001\n";
+		std::ofstream(games / "UN5.ini") << "[EmuCore]\nEnableCheats = true\n";
 	}
 
 	EXPECT_TRUE(Patch::GetPnachFilename("SLES-55605", 0xC071D4C1, true).empty());
 	EXPECT_TRUE(Patch::GetPatchInfo("SLES-55605", 0xC071D4C1, true, false, nullptr).empty());
 	EXPECT_TRUE(VMManager::GetGameSettingsPath("SLES-55605", 0xC071D4C1).empty());
-	Pcsx2Config config;
-	config.Mcd[0].Filename = "UN5.ps2";
-	EXPECT_TRUE(config.FullpathToMcd(0).empty());
+
+	std::filesystem::remove(second_games / "UN5.ini");
+	EXPECT_EQ(VMManager::GetGameSettingsPath("SLES-55605", 0xC071D4C1), (first_games / "UN5.ini").string());
+	EXPECT_TRUE(Patch::GetPnachFilename("SLES-55605", 0xC071D4C1, true).empty());
+	EXPECT_TRUE(Patch::GetPatchInfo("SLES-55605", 0xC071D4C1, true, false, nullptr).empty());
+
+	std::ofstream(second_games / "UN5.ini") << "[EmuCore]\nEnableCheats = true\n";
+	std::filesystem::remove(first_games / "UN5.pnach");
+	EXPECT_TRUE(VMManager::GetGameSettingsPath("SLES-55605", 0xC071D4C1).empty());
+	EXPECT_EQ(Patch::GetPnachFilename("SLES-55605", 0xC071D4C1, true), (second_games / "UN5.pnach").string());
+	const std::vector<Patch::PatchInfo> info = Patch::GetPatchInfo("SLES-55605", 0xC071D4C1, true, false, nullptr);
+	ASSERT_EQ(info.size(), 1u);
+	EXPECT_EQ(info[0].name, "Alias");
 }
 
 TEST(Patch, ResolvesGameSettingsAcrossContentFolders)
@@ -462,19 +466,22 @@ TEST(MemoryCard, ResolvesAndManagesCardsAcrossContentFolders)
 
 	const std::string old_memory_cards_directory = EmuFolders::MemoryCards;
 	const std::vector<std::string> old_additional_content_folders = EmuFolders::AdditionalContentFolders;
+	const auto old_content_aliases = EmuFolders::ContentAliases;
 	struct Cleanup
 	{
 		std::filesystem::path directory;
 		std::string memory_cards_directory;
 		std::vector<std::string> additional_content_folders;
+		std::vector<std::pair<std::string, std::string>> content_aliases;
 		~Cleanup()
 		{
 			EmuFolders::MemoryCards = std::move(memory_cards_directory);
 			EmuFolders::AdditionalContentFolders = std::move(additional_content_folders);
+			EmuFolders::ContentAliases = std::move(content_aliases);
 			std::error_code error;
 			std::filesystem::remove_all(directory, error);
 		}
-	} cleanup{test_directory, old_memory_cards_directory, old_additional_content_folders};
+	} cleanup{test_directory, old_memory_cards_directory, old_additional_content_folders, old_content_aliases};
 
 	const auto create_card = [](const std::filesystem::path& path) {
 		std::ofstream file(path, std::ios::binary);
@@ -490,15 +497,26 @@ TEST(MemoryCard, ResolvesAndManagesCardsAcrossContentFolders)
 	ASSERT_TRUE(std::filesystem::is_regular_file(primary_duplicate));
 	ASSERT_TRUE(std::filesystem::is_regular_file(first_duplicate));
 	ASSERT_TRUE(std::filesystem::is_regular_file(external_card));
+	const std::filesystem::path old_alias_directory = first_directory / "games" / "ignored";
+	ASSERT_TRUE(std::filesystem::create_directories(old_alias_directory));
+	create_card(old_alias_directory / "ignored.ps2");
+	create_card(first_directory / "games" / "ignored.ps2");
 
 	EmuFolders::MemoryCards = primary_directory.string();
 	EmuFolders::AdditionalContentFolders = {first_directory.string(), second_directory.string()};
+	EmuFolders::ContentAliases = {{"SLUS-00001", "external"}, {"SLUS-00002", "duplicate"},
+		{"SLUS-00003", "missing"}, {"SLUS-00004", "ignored"}, {"SLUS-00005", "folder"}};
 
 	Pcsx2Config config;
 	config.Mcd[0].Filename = "external.ps2";
 	EXPECT_EQ(config.FullpathToMcd(0), external_card.string());
 	config.Mcd[0].Filename = "missing.ps2";
 	EXPECT_EQ(config.FullpathToMcd(0), (primary_directory / "missing.ps2").string());
+	config.Mcd[0].Filename = "duplicate.ps2";
+	EXPECT_EQ(config.FullpathToMcd(0), primary_duplicate.string());
+	config.Mcd[0].Filename = "ignored.ps2";
+	EXPECT_EQ(config.FullpathToMcd(0), (primary_directory / "ignored.ps2").string());
+	EXPECT_FALSE(FileMcd_GetCardInfo("ignored.ps2").has_value());
 
 	const std::vector<AvailableMcdInfo> cards = FileMcd_GetAvailableCards(true);
 	ASSERT_EQ(cards.size(), 2u);

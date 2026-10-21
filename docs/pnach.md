@@ -7,7 +7,7 @@ implementation is in `pcsx2/Patch.cpp`.
 ## Automatic discovery
 
 When the game has a [content alias](content_folders.md#content-aliases), its
-only automatic cheat file is the bundle's `<alias>.pnach`.
+only automatic cheat file is `games/<alias>.pnach` in an additional content folder.
 
 Otherwise PCSX2 searches the cheats folder and then each
 [additional content folder](content_folders.md#additional-content-folders).

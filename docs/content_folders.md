@@ -2,7 +2,7 @@
 
 The fork lets PCSX2 read game settings, cheat PNACH files, and memory cards
 from folders outside its data directory, and lets several game identities share
-one registered bundle. The implementation is in `pcsx2/Pcsx2Config.cpp`
+one alias. The implementation is in `pcsx2/Pcsx2Config.cpp`
 (`EmuFolders`), `pcsx2/VMManager.cpp`, `pcsx2/Patch.cpp`, and
 `pcsx2/SIO/Memcard/MemoryCardFile.cpp`.
 
@@ -52,20 +52,19 @@ case-insensitive, an exact serial-and-CRC key takes precedence over a serial
 key, and the later of two identical keys wins. An alias must be a valid file
 name; other values are ignored with a warning.
 
-Each alias owns a bundle, `games/<alias>/`, in exactly one additional content
-folder. A bundle found in more than one additional folder, or in none, is
-refused with an error. Bundle files are named after the alias:
+Alias files live directly in an additional content folder's `games/` directory:
 
 | File | Used for |
 | --- | --- |
 | `<alias>.ini` | Game settings of every identity mapped to the alias. CRC sections are not applied. |
 | `<alias>.pnach` | Automatic cheat PNACH of every identity mapped to the alias. |
-| `<alias>.ps2` | Any memory card slot whose configured file name, without its extension, is the alias. |
 
-For an aliased game, the bundle file replaces the folder search: a missing
-`<alias>.ini` means no game settings, and a missing `<alias>.pnach` means no
-automatic cheat file. Game patch files and the GameDB still use the detected
-serial.
+Each file is looked up separately across the additional content folders, so
+`games/<alias>.ini` and `games/<alias>.pnach` may be in different folders.
+A file found in more than one folder is refused with an error. A missing file
+means no game settings or no automatic cheat file; the alias still works with
+no files. The old `games/<alias>/` layout is not supported. Game patch files
+and the GameDB still use the detected serial.
 
 ### Local identity
 
@@ -82,6 +81,6 @@ CRC.
 ## Tests
 
 `tests/ctest/core/patch_tests.cpp` covers ordered cheat discovery across
-content folders, alias resolution for cheats, game settings, and memory cards,
-local identity, refusal of duplicate bundles, game settings lookup across folders, and memory
-card management across folders.
+content folders, independent alias file lookup and duplicate refusal, local
+identity without files, game settings lookup across folders, and memory card
+management across folders.
