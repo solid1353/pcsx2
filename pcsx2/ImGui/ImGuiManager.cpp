@@ -1208,6 +1208,24 @@ bool ImGuiManager::ProcessHostKeyEvent(InputBindingKey key, float value)
 			io.AddKeyEvent(mod, down);
 	});
 
+	// Esc closes the save state selector while it is shown, and neither that press nor its release
+	// reaches any binding. Input events arrive on one thread, so the flag needs no locking.
+	static bool s_escape_closed_selector = false;
+	if (iter->second == ImGuiKey_Escape)
+	{
+		if (value != 0.0f && SaveStateSelectorUI::IsOpen())
+		{
+			s_escape_closed_selector = true;
+			MTGS::RunOnGSThread([]() { SaveStateSelectorUI::Close(); });
+			return true;
+		}
+		if (value == 0.0f && s_escape_closed_selector)
+		{
+			s_escape_closed_selector = false;
+			return true;
+		}
+	}
+
 	return s_imgui_wants_keyboard.load(std::memory_order_acquire);
 }
 
