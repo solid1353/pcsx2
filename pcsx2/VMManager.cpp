@@ -747,7 +747,7 @@ void VMManager::LoadCoreSettings(SettingsInterface& si)
 		EmuConfig.CurrentMemoryCardPath = *s_memory_card_override;
 		EmuConfig.Mcd[0].Enabled = true;
 		EmuConfig.Mcd[0].Filename = Path::GetFileName(*s_memory_card_override);
-		EmuConfig.Mcd[0].Type = MemoryCardType::File;
+		EmuConfig.Mcd[0].Type = FileSystem::DirectoryExists(s_memory_card_override->c_str()) ? MemoryCardType::Folder : MemoryCardType::File;
 	}
 	Patch::ApplyPatchSettingOverrides();
 

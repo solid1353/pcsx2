@@ -2298,8 +2298,8 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -mute: Mutes audio output for this process without changing persistent settings.\n");
 	std::fprintf(stderr, "  -read-only-settings: Prevents settings INI writes for this process.\n");
 	std::fprintf(stderr, "  -discard-memory-card-writes: Reports memory card writes as successful without changing card contents.\n");
-	std::fprintf(stderr, "  -volatile-memory-card: Keeps file memory card changes in RAM for this process; folder cards are disconnected.\n");
-	std::fprintf(stderr, "  -memory-card <path|none>: Uses path as the slot 1 card, or disconnects all slots with none for this process.\n");
+	std::fprintf(stderr, "  -volatile-memory-card: Keeps file card changes in RAM for the life of the process; folder card changes stay in memory and are dropped when the card is closed or reindexed (game boot or emulation stop).\n");
+	std::fprintf(stderr, "  -memory-card <path|none>: Uses an existing card file as a file card or folder card as a folder card in port 1, or disconnects all slots with none for this process.\n");
 	std::fprintf(stderr, "                            Does not change persistent settings; none is case-insensitive.\n");
 	std::fprintf(stderr, "  -pnach <path>: Uses supplied PNACH files in order instead of automatic CRC-PNACH loading. May be repeated.\n");
 	std::fprintf(stderr, "  -pnach-line <line>: Appends an executable PNACH line after file-based PNACHs. May be repeated.\n");
@@ -2440,7 +2440,7 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 				}
 
 				const QFileInfo path(value);
-				if (!path.isFile())
+				if (!path.isFile() && !path.isDir())
 				{
 					QMessageBox::critical(nullptr, QStringLiteral("Error"),
 						QStringLiteral("Memory card does not exist: %1").arg(path.absoluteFilePath()));

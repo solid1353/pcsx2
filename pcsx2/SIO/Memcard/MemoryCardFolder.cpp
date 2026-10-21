@@ -142,7 +142,7 @@ bool FolderMemoryCard::IsFormatted() const
 
 void FolderMemoryCard::Open(const bool enableFiltering, std::string filter)
 {
-	Open(EmuConfig.FullpathToMcd(m_slot), EmuConfig.Mcd[m_slot], 0, enableFiltering, std::move(filter), false);
+	Open(EmuConfig.FullpathToMcd(m_slot), EmuConfig.Mcd[m_slot], 0, enableFiltering, std::move(filter), FileMcd_IsVolatileMode());
 }
 
 void FolderMemoryCard::Open(std::string fullPath, const Pcsx2Config::McdOptions& mcdOptions, const u32 sizeInClusters, const bool enableFiltering, std::string filter, bool simulateFileWrites)
@@ -204,7 +204,7 @@ void FolderMemoryCard::Close(bool flush)
 		return;
 	}
 
-	if (flush)
+	if (flush && !FileMcd_IsVolatileMode())
 	{
 		Flush();
 	}
@@ -1064,7 +1064,9 @@ s32 FolderMemoryCard::Save(const u8* src, u32 adr, int size)
 
 void FolderMemoryCard::NextFrame()
 {
-	if (m_framesUntilFlush > 0 && --m_framesUntilFlush == 0)
+	// Volatile pages must stay cached so reads see changes until close or reindex.
+	// Game-level save compatibility still needs proper testing.
+	if (!FileMcd_IsVolatileMode() && m_framesUntilFlush > 0 && --m_framesUntilFlush == 0)
 	{
 		Flush();
 	}
@@ -1990,7 +1992,8 @@ std::FILE* FileAccessHelper::Open(const std::string_view folderName, MemoryCardF
 	std::string filename(folderName);
 	fileRef->GetPath(&filename);
 
-	if (!FileSystem::FileExists(filename.c_str()))
+	const bool volatileMode = FileMcd_IsVolatileMode();
+	if (!volatileMode && !FileSystem::FileExists(filename.c_str()))
 	{
 		const std::string directory(Path::GetDirectory(filename));
 		if (!FileSystem::DirectoryExists(directory.c_str()))
@@ -1999,7 +2002,7 @@ std::FILE* FileAccessHelper::Open(const std::string_view folderName, MemoryCardF
 		auto createEmptyFile = FileSystem::OpenManagedSharedCFile(filename.c_str(), "wb", FileSystem::FileShareMode::DenyNone);
 	}
 
-	std::FILE* file = FileSystem::OpenSharedCFile(filename.c_str(), "r+b", FileSystem::FileShareMode::DenyNone);
+	std::FILE* file = FileSystem::OpenSharedCFile(filename.c_str(), volatileMode ? "rb" : "r+b", FileSystem::FileShareMode::DenyNone);
 
 	std::string internalPath;
 	fileRef->GetInternalPath(&internalPath);
@@ -2009,7 +2012,7 @@ std::FILE* FileAccessHelper::Open(const std::string_view folderName, MemoryCardF
 	handleStruct.hostFilePath = std::move(filename);
 	m_files.emplace(std::move(internalPath), std::move(handleStruct));
 
-	if (writeMetadata)
+	if (writeMetadata && !volatileMode)
 	{
 		WriteMetadata(folderName, fileRef);
 	}
@@ -2122,7 +2125,7 @@ std::FILE* FileAccessHelper::ReOpen(const std::string_view folderName, MemoryCar
 		// we already have a handle to this file
 
 		// if the caller wants to write metadata and we haven't done this recently, do so and remember that we did
-		if (writeMetadata)
+		if (writeMetadata && !FileMcd_IsVolatileMode())
 		{
 			if (m_lastWrittenFileRef != fileRef)
 			{

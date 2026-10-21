@@ -3,12 +3,14 @@
 
 #include "Config.h"
 #include "SIO/Memcard/MemoryCardFile.h"
+#include "SIO/Memcard/MemoryCardFolder.h"
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -38,6 +40,8 @@ namespace
 			FileMcd_SetVolatileMode(m_old_mode);
 			EmuConfig = std::move(m_old_config);
 			std::error_code error;
+			if (m_folder_superblock_created)
+				std::filesystem::remove(m_path / "_pcsx2_superblock", error);
 			if (m_path_is_test_owned)
 				std::filesystem::remove(m_path, error);
 			if (!m_intermediate.empty())
@@ -58,6 +62,7 @@ namespace
 		Pcsx2Config m_old_config;
 		bool m_old_mode = false;
 		bool m_path_is_test_owned = false;
+		bool m_folder_superblock_created = false;
 	};
 } // namespace
 
@@ -148,10 +153,105 @@ TEST_F(VolatileMemoryCardTest, ConvertsNoECCCardInRAMWithoutCreatingAnIntermedia
 	EXPECT_EQ(after, original);
 }
 
-TEST_F(VolatileMemoryCardTest, DisconnectsFolderCards)
+TEST_F(VolatileMemoryCardTest, KeepsFolderWritesAndErasesAcrossFramesAndDropsThemOnReindexAndClose)
 {
-	Select(std::filesystem::current_path());
+	ASSERT_TRUE(std::filesystem::create_directory(m_path));
+	std::array<u8, FolderMemoryCard::BlockSize> original;
+	original.fill(0xff);
+	superblock header;
+	std::memset(&header, 0xff, sizeof(header));
+	std::memcpy(header.magic, "Sony PS2 Memory Card Format ", sizeof(header.magic));
+	header.page_len = FolderMemoryCard::PageSize;
+	header.pages_per_cluster = 2;
+	header.pages_per_block = 16;
+	header.clusters_per_card = FolderMemoryCard::TotalClusters;
+	header.alloc_offset = 41;
+	header.alloc_end = FolderMemoryCard::TotalClusters - header.alloc_offset - 16;
+	header.rootdir_cluster = 0;
+	header.backup_block1 = FolderMemoryCard::TotalBlocks - 1;
+	header.backup_block2 = FolderMemoryCard::TotalBlocks - 2;
+	header.ifc_list[0] = 8;
+	std::memcpy(original.data(), &header, sizeof(header));
+	{
+		std::ofstream source(m_path / "_pcsx2_superblock", std::ios::binary);
+		ASSERT_TRUE(source.is_open());
+		m_folder_superblock_created = true;
+		source.write(reinterpret_cast<const char*>(original.data()), original.size());
+		ASSERT_TRUE(source.good());
+	}
+
 	FileMcd_SetType();
-	EXPECT_FALSE(EmuConfig.Mcd[0].Enabled);
-	EXPECT_EQ(EmuConfig.Mcd[0].Type, MemoryCardType::Empty);
+	EXPECT_TRUE(EmuConfig.Mcd[0].Enabled);
+	EXPECT_EQ(EmuConfig.Mcd[0].Type, MemoryCardType::Folder);
+	FileMcd_EmuOpen();
+	ASSERT_TRUE(FileMcd_IsPresent(0, 0));
+	// An unused data block makes a premature flush observable: uncached reads return 0xff.
+	constexpr u32 address = 8 * FolderMemoryCard::BlockSizeRaw;
+	const std::array<u8, 8> saved = {0x0f, 0x1f, 0x2f, 0x3f, 0x4f, 0x5f, 0x6f, 0x7f};
+	std::array<u8, 8> blank;
+	blank.fill(0xff);
+	std::array<u8, 8> actual = {};
+	ASSERT_EQ(FileMcd_Read(0, 0, actual.data(), address, actual.size()), 1);
+	ASSERT_EQ(actual, blank);
+	EXPECT_EQ(FileMcd_Save(0, 0, saved.data(), address, saved.size()), 1);
+	for (int i = 0; i < FolderMemoryCard::FramesAfterWriteUntilFlush + 2; ++i)
+		FileMcd_NextFrame(0, 0);
+	EXPECT_EQ(FileMcd_Read(0, 0, actual.data(), address, actual.size()), 1);
+	EXPECT_EQ(actual, saved);
+
+	EXPECT_EQ(FileMcd_EraseBlock(0, 0, address), 1);
+	for (int i = 0; i < FolderMemoryCard::FramesAfterWriteUntilFlush + 2; ++i)
+		FileMcd_NextFrame(0, 0);
+	EXPECT_EQ(FileMcd_Read(0, 0, actual.data(), address, actual.size()), 1);
+	EXPECT_EQ(actual, blank);
+	EXPECT_EQ(FileMcd_Save(0, 0, saved.data(), address, saved.size()), 1);
+	// Touch the superblock too, so an accidental flush would also change the source file.
+	EXPECT_EQ(FileMcd_Save(0, 0, saved.data(), 0x180, saved.size()), 1);
+	EXPECT_EQ(FileMcd_ReIndex(0, 0, "volatile-folder-test"), 0);
+	EXPECT_TRUE(FileMcd_IsPresent(0, 0));
+	EXPECT_EQ(FileMcd_Read(0, 0, actual.data(), address, actual.size()), 1);
+	EXPECT_EQ(actual, blank);
+	EXPECT_EQ(FileMcd_Read(0, 0, actual.data(), 0x180, actual.size()), 1);
+	EXPECT_EQ(actual, blank);
+
+	EXPECT_EQ(FileMcd_Save(0, 0, saved.data(), address, saved.size()), 1);
+	EXPECT_EQ(FileMcd_Save(0, 0, saved.data(), 0x180, saved.size()), 1);
+	FileMcd_EmuClose();
+	FileMcd_EmuOpen();
+	ASSERT_TRUE(FileMcd_IsPresent(0, 0));
+	EXPECT_EQ(FileMcd_Read(0, 0, actual.data(), address, actual.size()), 1);
+	EXPECT_EQ(actual, blank);
+	EXPECT_EQ(FileMcd_Read(0, 0, actual.data(), 0x180, actual.size()), 1);
+	EXPECT_EQ(actual, blank);
+	FileMcd_EmuClose();
+
+	std::ifstream source(m_path / "_pcsx2_superblock", std::ios::binary);
+	ASSERT_TRUE(source.is_open());
+	const std::vector<u8> after((std::istreambuf_iterator<char>(source)), std::istreambuf_iterator<char>());
+	EXPECT_EQ(after, (std::vector<u8>(original.begin(), original.end())));
+	EXPECT_EQ(std::distance(std::filesystem::directory_iterator(m_path), std::filesystem::directory_iterator()), 1);
+}
+
+TEST_F(VolatileMemoryCardTest, OpensFolderWithoutCreatingItOnDisk)
+{
+	EmuConfig.Mcd[0].Type = MemoryCardType::Folder;
+	FolderMemoryCard card;
+	card.Open(true, "");
+	EXPECT_TRUE(card.IsPresent());
+	EXPECT_FALSE(std::filesystem::exists(m_path));
+	card.Close();
+	EXPECT_FALSE(std::filesystem::exists(m_path));
+}
+
+TEST_F(VolatileMemoryCardTest, ReadingMissingFolderBackingFileDoesNotRecreateIt)
+{
+	ASSERT_TRUE(std::filesystem::create_directory(m_path));
+	MemoryCardFileEntry entry = {};
+	entry.entry.data.mode = MemoryCardFileEntry::DefaultFileMode;
+	std::memcpy(entry.entry.data.name, "missing", sizeof("missing"));
+	MemoryCardFileMetadataReference reference = {nullptr, &entry, 0};
+	FileAccessHelper files;
+	EXPECT_EQ(files.ReOpen(m_path.string(), &reference), nullptr);
+	files.CloseAll();
+	EXPECT_TRUE(std::filesystem::is_empty(m_path));
 }
