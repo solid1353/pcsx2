@@ -15,6 +15,12 @@ names a missing profile, the shared settings apply as upstream. The
 implementation is in `pcsx2/VMManager.cpp` and
 `pcsx2-qt/Settings/ControllerSettingsWindow.cpp`.
 
+While a hotkey chord such as `SDL-0/Guide & SDL-0/DPadUp` is fully held,
+controller and keyboard pad bindings made only of its keys stay released, so
+the game does not see the chord's inputs (`pcsx2/Input/InputManager.cpp`).
+
+Starting a game with a non-default PAL frame rate shows no warning.
+
 - [Launch options](launch_options.md): command-line options for windows,
   speed, settings, memory cards, PINE, and agent replay.
 - [Input recording capture](input_recording_capture.md): recording paths,
