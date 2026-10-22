@@ -242,6 +242,7 @@ void MainWindow::setupAdditionalUi()
 
 	m_game_list_widget = new GameListWidget(getContentParent());
 	m_game_list_widget->initialize();
+	m_ui.actionViewFilterBar->setChecked(m_game_list_widget->isFilterBarVisible());
 	m_ui.actionGridViewShowTitles->setChecked(m_game_list_widget->getShowGridCoverTitles());
 	m_ui.actionGridViewShowFullTitles->setChecked(m_game_list_widget->getShowGridFullCoverTitles());
 	m_ui.mainContainer->addWidget(m_game_list_widget);
@@ -857,6 +858,8 @@ void MainWindow::connectSignals()
 	connect(m_ui.actionScanForNewGames, &QAction::triggered, [this]() { refreshGameList(false, true); });
 	connect(m_ui.actionRescanAllGames, &QAction::triggered, [this]() { refreshGameList(true, true); });
 	connect(m_ui.actionViewToolbar, &QAction::toggled, this, &MainWindow::onViewToolbarActionToggled);
+	connect(m_ui.actionViewFilterBar, &QAction::toggled, m_game_list_widget, &GameListWidget::setFilterBarVisible);
+	connect(m_game_list_widget, &GameListWidget::filterBarVisibilityChanged, m_ui.actionViewFilterBar, &QAction::setChecked);
 	connect(m_ui.actionViewLockToolbar, &QAction::toggled, this, &MainWindow::onViewLockToolbarActionToggled);
 	connect(m_ui.actionViewStatusBar, &QAction::toggled, this, &MainWindow::onViewStatusBarActionToggled);
 	connect(m_ui.actionViewGameList, &QAction::triggered, this, &MainWindow::onViewGameListActionTriggered);

@@ -247,6 +247,7 @@ void GameListWidget::initialize()
 	m_sort_model->setSourceModel(m_model);
 
 	m_ui.setupUi(this);
+	m_ui.filterBar->setVisible(Host::GetBaseBoolSettingValue("UI", "ShowGameListFilterBar", true));
 	m_ui.stack->installEventFilter(this);
 	m_ui.stack->setAutoFillBackground(false);
 
@@ -281,6 +282,7 @@ void GameListWidget::initialize()
 	});
 
 	connect(new QShortcut(QKeySequence::Find, this), &QShortcut::activated, [this]() {
+		setFilterBarVisible(true);
 		m_ui.searchText->setFocus();
 	});
 
@@ -541,6 +543,11 @@ bool GameListWidget::isShowingGameGrid() const
 	return m_ui.stack->currentIndex() == 1;
 }
 
+bool GameListWidget::isFilterBarVisible() const
+{
+	return !m_ui.filterBar->isHidden();
+}
+
 bool GameListWidget::getShowGridCoverTitles() const
 {
 	return m_model->getShowCoverTitles();
@@ -769,6 +776,17 @@ void GameListWidget::showGameGrid()
 	setFocusProxy(m_ui.stack->currentWidget());
 	updateToolbar();
 	emit layoutChange();
+}
+
+void GameListWidget::setFilterBarVisible(bool visible)
+{
+	if (isFilterBarVisible() == visible)
+		return;
+
+	Host::SetBaseBoolSettingValue("UI", "ShowGameListFilterBar", visible);
+	Host::CommitBaseSettingChanges();
+	m_ui.filterBar->setVisible(visible);
+	emit filterBarVisibilityChanged(visible);
 }
 
 void GameListWidget::setShowCoverTitles(bool enabled)
