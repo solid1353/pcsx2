@@ -164,6 +164,7 @@
     </widget>
     <addaction name="actionViewToolbar"/>
     <addaction name="actionViewLockToolbar"/>
+    <addaction name="actionViewFilterBar"/>
     <addaction name="actionViewStatusBar"/>
     <addaction name="actionViewStatusBarVerbose"/>
     <addaction name="separator"/>
@@ -730,6 +731,17 @@
    </property>
    <property name="text">
     <string>&amp;Toolbar</string>
+   </property>
+  </action>
+  <action name="actionViewFilterBar">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;Filter Bar</string>
    </property>
   </action>
   <action name="actionViewLockToolbar">

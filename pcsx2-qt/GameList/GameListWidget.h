@@ -60,6 +60,7 @@ public:
 
 	bool isShowingGameList() const;
 	bool isShowingGameGrid() const;
+	bool isFilterBarVisible() const;
 	bool getShowGridCoverTitles() const;
 	bool getShowGridFullCoverTitles() const;
 
@@ -78,6 +79,7 @@ Q_SIGNALS:
 
 	void addGameDirectoryRequested();
 	void layoutChange();
+	void filterBarVisibilityChanged(bool visible);
 
 private Q_SLOTS:
 	void onRefreshProgress(const QString& status, int current, int total);
@@ -93,6 +95,7 @@ private Q_SLOTS:
 	void onTableHeaderStateChanged();
 
 public Q_SLOTS:
+	void setFilterBarVisible(bool visible);
 	void showGameList();
 	void showGameGrid();
 	void setShowCoverTitles(bool enabled);
