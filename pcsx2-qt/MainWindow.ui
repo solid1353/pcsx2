@@ -332,6 +332,9 @@
    <property name="text">
     <string>&amp;Rescan All Games</string>
    </property>
+   <property name="iconText">
+    <string comment="In Toolbar">Rescan</string>
+   </property>
   </action>
   <action name="actionPowerOff">
    <property name="icon">
