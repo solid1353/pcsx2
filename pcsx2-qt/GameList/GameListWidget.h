@@ -78,6 +78,7 @@ Q_SIGNALS:
 	void entryContextMenuRequested(const QPoint& point);
 	void entryRenameRequested(const QString& path);
 	void entryDeleteRequested(const QString& path);
+	void rescanRequested();
 
 	void addGameDirectoryRequested();
 	void layoutChange();

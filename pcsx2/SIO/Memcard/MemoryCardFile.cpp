@@ -21,6 +21,7 @@
 #include "Config.h"
 #include "Host.h"
 #include "VMManager.h"
+#include "ps2/BiosTools.h"
 #include "IconsPromptFont.h"
 
 #include "fmt/format.h"
@@ -806,7 +807,6 @@ void FileMcd_EmuOpen()
 
 
 	Mcd::impl.Open();
-	Mcd::implFolder.SetFiltering(true);
 	Mcd::implFolder.Open();
 }
 
@@ -1024,7 +1024,7 @@ int FileMcd_ReIndex(uint port, uint slot, const std::string& filter)
 		//	return Mcd::impl.ReIndex( combinedSlot, filter );
 		//	break;
 		case MemoryCardType::Folder:
-			if (!Mcd::implFolder.ReIndex(combinedSlot, true, filter))
+			if (!Mcd::implFolder.ReIndex(combinedSlot, filter != BiosSerial, filter))
 				return -1;
 			break;
 		default:
