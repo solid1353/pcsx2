@@ -250,6 +250,9 @@ void GameListWidget::initialize()
 	m_ui.filterBar->setVisible(Host::GetBaseBoolSettingValue("UI", "ShowGameListFilterBar", true));
 	m_ui.stack->installEventFilter(this);
 	m_ui.stack->setAutoFillBackground(false);
+	QShortcut* rescan_shortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_R), m_ui.stack, this,
+		&GameListWidget::rescanRequested, Qt::WidgetWithChildrenShortcut);
+	rescan_shortcut->setAutoRepeat(false);
 
 	for (u32 type = 0; type < static_cast<u32>(GameList::EntryType::Count); type++)
 	{

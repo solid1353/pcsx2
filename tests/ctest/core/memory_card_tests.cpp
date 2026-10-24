@@ -4,6 +4,7 @@
 #include "Config.h"
 #include "SIO/Memcard/MemoryCardFile.h"
 #include "SIO/Memcard/MemoryCardFolder.h"
+#include "ps2/BiosTools.h"
 
 #include <gtest/gtest.h>
 
@@ -25,6 +26,7 @@ namespace
 		{
 			m_old_config = EmuConfig;
 			m_old_mode = FileMcd_IsVolatileMode();
+			m_old_bios_serial = BiosSerial;
 			m_path = std::filesystem::current_path() /
 				("volatile-memory-card-test-" +
 					std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".ps2");
@@ -37,9 +39,12 @@ namespace
 		void TearDown() override
 		{
 			FileMcd_EmuClose();
+			BiosSerial = std::move(m_old_bios_serial);
 			FileMcd_SetVolatileMode(m_old_mode);
 			EmuConfig = std::move(m_old_config);
 			std::error_code error;
+			for (const std::filesystem::path& folder : m_save_folders)
+				std::filesystem::remove(folder, error);
 			if (m_folder_superblock_created)
 				std::filesystem::remove(m_path / "_pcsx2_superblock", error);
 			if (m_path_is_test_owned)
@@ -57,8 +62,45 @@ namespace
 			EmuConfig.CurrentMemoryCardPath = path.string();
 		}
 
+		void CreateFormattedFolder(std::array<u8, FolderMemoryCard::BlockSize>& original)
+		{
+			ASSERT_TRUE(std::filesystem::create_directory(m_path));
+			original.fill(0xff);
+			superblock header;
+			std::memset(&header, 0xff, sizeof(header));
+			std::memcpy(header.magic, "Sony PS2 Memory Card Format ", sizeof(header.magic));
+			header.page_len = FolderMemoryCard::PageSize;
+			header.pages_per_cluster = 2;
+			header.pages_per_block = 16;
+			header.clusters_per_card = FolderMemoryCard::TotalClusters;
+			header.alloc_offset = 41;
+			header.alloc_end = FolderMemoryCard::TotalClusters - header.alloc_offset - 16;
+			header.rootdir_cluster = 0;
+			header.backup_block1 = FolderMemoryCard::TotalBlocks - 1;
+			header.backup_block2 = FolderMemoryCard::TotalBlocks - 2;
+			header.ifc_list[0] = 8;
+			std::memcpy(original.data(), &header, sizeof(header));
+			std::ofstream source(m_path / "_pcsx2_superblock", std::ios::binary);
+			ASSERT_TRUE(source.is_open());
+			m_folder_superblock_created = true;
+			source.write(reinterpret_cast<const char*>(original.data()), original.size());
+			ASSERT_TRUE(source.good());
+		}
+
+		u32 RootEntryCount()
+		{
+			superblock header = {};
+			EXPECT_EQ(FileMcd_Read(0, 0, reinterpret_cast<u8*>(&header), 0, sizeof(header)), 1);
+			MemoryCardFileEntry root = {};
+			const u32 address = (header.alloc_offset + header.rootdir_cluster) * FolderMemoryCard::ClusterSizeRaw;
+			EXPECT_EQ(FileMcd_Read(0, 0, root.entry.raw, address, sizeof(root.entry.raw)), 1);
+			return root.entry.data.length;
+		}
+
 		std::filesystem::path m_path;
 		std::filesystem::path m_intermediate;
+		std::vector<std::filesystem::path> m_save_folders;
+		std::string m_old_bios_serial;
 		Pcsx2Config m_old_config;
 		bool m_old_mode = false;
 		bool m_path_is_test_owned = false;
@@ -155,30 +197,8 @@ TEST_F(VolatileMemoryCardTest, ConvertsNoECCCardInRAMWithoutCreatingAnIntermedia
 
 TEST_F(VolatileMemoryCardTest, KeepsFolderWritesAndErasesAcrossFramesAndDropsThemOnReindexAndClose)
 {
-	ASSERT_TRUE(std::filesystem::create_directory(m_path));
 	std::array<u8, FolderMemoryCard::BlockSize> original;
-	original.fill(0xff);
-	superblock header;
-	std::memset(&header, 0xff, sizeof(header));
-	std::memcpy(header.magic, "Sony PS2 Memory Card Format ", sizeof(header.magic));
-	header.page_len = FolderMemoryCard::PageSize;
-	header.pages_per_cluster = 2;
-	header.pages_per_block = 16;
-	header.clusters_per_card = FolderMemoryCard::TotalClusters;
-	header.alloc_offset = 41;
-	header.alloc_end = FolderMemoryCard::TotalClusters - header.alloc_offset - 16;
-	header.rootdir_cluster = 0;
-	header.backup_block1 = FolderMemoryCard::TotalBlocks - 1;
-	header.backup_block2 = FolderMemoryCard::TotalBlocks - 2;
-	header.ifc_list[0] = 8;
-	std::memcpy(original.data(), &header, sizeof(header));
-	{
-		std::ofstream source(m_path / "_pcsx2_superblock", std::ios::binary);
-		ASSERT_TRUE(source.is_open());
-		m_folder_superblock_created = true;
-		source.write(reinterpret_cast<const char*>(original.data()), original.size());
-		ASSERT_TRUE(source.good());
-	}
+	ASSERT_NO_FATAL_FAILURE(CreateFormattedFolder(original));
 
 	FileMcd_SetType();
 	EXPECT_TRUE(EmuConfig.Mcd[0].Enabled);
@@ -230,6 +250,33 @@ TEST_F(VolatileMemoryCardTest, KeepsFolderWritesAndErasesAcrossFramesAndDropsThe
 	const std::vector<u8> after((std::istreambuf_iterator<char>(source)), std::istreambuf_iterator<char>());
 	EXPECT_EQ(after, (std::vector<u8>(original.begin(), original.end())));
 	EXPECT_EQ(std::distance(std::filesystem::directory_iterator(m_path), std::filesystem::directory_iterator()), 1);
+}
+
+TEST_F(VolatileMemoryCardTest, ShowsAllSaveFoldersInBIOSAndFiltersGamesAcrossReopens)
+{
+	std::array<u8, FolderMemoryCard::BlockSize> original;
+	ASSERT_NO_FATAL_FAILURE(CreateFormattedFolder(original));
+	for (const char* name : {"BASLUS-11111SAVE", "BASLUS-22222SAVE"})
+	{
+		const std::filesystem::path folder = m_path / name;
+		ASSERT_TRUE(std::filesystem::create_directory(folder));
+		m_save_folders.push_back(folder);
+	}
+	BiosSerial = "memory-card-test-bios";
+
+	FileMcd_Reopen(BiosSerial);
+	ASSERT_TRUE(FileMcd_IsPresent(0, 0));
+	EXPECT_EQ(RootEntryCount(), 4u); // Two save folders plus . and ..
+	FileMcd_EmuClose();
+	FileMcd_EmuOpen();
+	EXPECT_EQ(RootEntryCount(), 4u);
+
+	FileMcd_Reopen("SLUS-11111");
+	EXPECT_EQ(RootEntryCount(), 3u);
+	FileMcd_Reopen(BiosSerial);
+	EXPECT_EQ(RootEntryCount(), 4u);
+	FileMcd_Reopen("SLUS-22222");
+	EXPECT_EQ(RootEntryCount(), 3u);
 }
 
 TEST_F(VolatileMemoryCardTest, OpensFolderWithoutCreatingItOnDisk)
