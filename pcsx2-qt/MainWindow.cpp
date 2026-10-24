@@ -958,6 +958,12 @@ void MainWindow::connectSignals()
 	connect(m_game_list_widget, &GameListWidget::entryActivated, this, &MainWindow::onGameListEntryActivated, Qt::QueuedConnection);
 	connect(m_game_list_widget, &GameListWidget::entryContextMenuRequested, this, &MainWindow::onGameListEntryContextMenuRequested,
 		Qt::QueuedConnection);
+	connect(m_game_list_widget, &GameListWidget::entryRenameRequested, this, [this](const QString& path) {
+		if (!isGameListFileInUse(path))
+			renameGameListEntryFile(path); }, Qt::QueuedConnection);
+	connect(m_game_list_widget, &GameListWidget::entryDeleteRequested, this, [this](const QString& path) {
+		if (!isGameListFileInUse(path))
+			deleteGameListEntryFile(path); }, Qt::QueuedConnection);
 	connect(m_game_list_widget, &GameListWidget::addGameDirectoryRequested, this,
 		[this]() { getSettingsWindow()->getGameListSettingsWidget()->addSearchDirectory(this); });
 
