@@ -365,6 +365,21 @@ void GameListWidget::initialize()
 
 	m_ui.stack->insertWidget(1, m_list_view);
 
+	for (QWidget* view : {static_cast<QWidget*>(m_table_view), static_cast<QWidget*>(m_list_view)})
+	{
+		QShortcut* rename_shortcut = new QShortcut(QKeySequence(Qt::Key_F2), view, this, [this]() {
+			const std::optional<GameList::Entry> entry = getSelectedEntry();
+			if (entry.has_value())
+				emit entryRenameRequested(QString::fromStdString(entry->path)); }, Qt::WidgetWithChildrenShortcut);
+		rename_shortcut->setAutoRepeat(false);
+
+		QShortcut* delete_shortcut = new QShortcut(QKeySequence(Qt::Key_Delete), view, this, [this]() {
+			const std::optional<GameList::Entry> entry = getSelectedEntry();
+			if (entry.has_value())
+				emit entryDeleteRequested(QString::fromStdString(entry->path)); }, Qt::WidgetWithChildrenShortcut);
+		delete_shortcut->setAutoRepeat(false);
+	}
+
 	m_empty_widget = new QWidget(m_ui.stack);
 	m_empty_ui.setupUi(m_empty_widget);
 	m_empty_ui.supportedFormats->setText(qApp->translate("GameListWidget", SUPPORTED_FORMATS_STRING));
