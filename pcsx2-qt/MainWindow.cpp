@@ -54,6 +54,7 @@
 
 #include <QtCore/QDateTime>
 #include <QtCore/QDir>
+#include <QtCore/QFile>
 #include <QtCore/QMimeData>
 #include <QtGui/QCloseEvent>
 #include <QtGui/QDrag>
@@ -62,6 +63,7 @@
 #include <QtGui/QMouseEvent>
 #include <QtWidgets/QFileDialog>
 #include <QtWidgets/QInputDialog>
+#include <QtWidgets/QLineEdit>
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QProgressBar>
 #include <QtWidgets/QSlider>
@@ -117,6 +119,15 @@ static bool s_record_on_start = false;
 static QString s_path_to_recording_for_record_on_start;
 
 static constexpr const char* TOOLBAR_ACTION_MIME_TYPE = "application/x-pcsx2-toolbar-action";
+
+static bool isGameListFileInUse(const QString& path)
+{
+	if (!s_vm_valid)
+		return false;
+
+	const QFileInfo file(path);
+	return file == QFileInfo(s_current_disc_path) || file == QFileInfo(s_current_elf_override);
+}
 
 // DX cannot fullscreen when the display surface is in a container.
 // QWindow, however, seems to lack CSD under wayland, so needs the container.
@@ -2198,6 +2209,16 @@ void MainWindow::onGameListEntryContextMenuRequested(const QPoint& point)
 		connect(menu.addAction(tr("Exclude From List")), &QAction::triggered,
 			[this, entry]() { getSettingsWindow()->getGameListSettingsWidget()->addExcludedPath(entry->path); });
 
+		const QString file_path = QString::fromStdString(entry->path);
+		const bool file_in_use = isGameListFileInUse(file_path);
+		action = menu.addAction(tr("Rename..."));
+		action->setEnabled(!file_in_use);
+		connect(action, &QAction::triggered, [this, file_path]() { renameGameListEntryFile(file_path); });
+
+		action = menu.addAction(tr("Delete..."));
+		action->setEnabled(!file_in_use);
+		connect(action, &QAction::triggered, [this, file_path]() { deleteGameListEntryFile(file_path); });
+
 		const time_t entry_played_time = GameList::GetCachedPlayedTimeForSerial(entry->serial, entry->crc);
 		// Best two options given zero play time are to grey this out or to not show it at all.
 		if (entry_played_time)
@@ -3900,6 +3921,63 @@ void MainWindow::setGameListEntryCoverImage(const GameList::Entry& entry)
 	}
 
 	m_game_list_widget->refreshGridCovers();
+}
+
+void MainWindow::renameGameListEntryFile(const QString& path)
+{
+	const QFileInfo info(path);
+	bool accepted = false;
+	const QString name = QInputDialog::getText(this, tr("Rename Game File"), tr("File name (including extension):"),
+		QLineEdit::Normal, info.fileName(), &accepted);
+	if (!accepted || name == info.fileName())
+		return;
+
+	if (name.isEmpty() || name == QStringLiteral(".") || name == QStringLiteral("..") ||
+		name.contains(QLatin1Char('/')) || name.contains(QLatin1Char('\\')) || QFileInfo(name).fileName() != name)
+	{
+		QMessageBox::critical(this, tr("Rename Game File"), tr("Enter a file name without a directory path."));
+		return;
+	}
+	if (isGameListFileInUse(path))
+	{
+		QMessageBox::critical(this, tr("Rename Game File"), tr("This file is currently in use by the running game."));
+		return;
+	}
+
+	QFile file(path);
+	if (!file.rename(info.dir().filePath(name)))
+	{
+		QMessageBox::critical(this, tr("Rename Game File"), tr("Failed to rename the file:\n\n%1").arg(file.errorString()));
+		return;
+	}
+
+	refreshGameList(false, false);
+}
+
+void MainWindow::deleteGameListEntryFile(const QString& path)
+{
+	QMessageBox confirmation(QMessageBox::Warning, tr("Delete Game File"),
+		tr("Move this game file to the trash?\n\n%1").arg(QDir::toNativeSeparators(path)),
+		QMessageBox::Yes | QMessageBox::No, this);
+	confirmation.setTextFormat(Qt::PlainText);
+	confirmation.setDefaultButton(QMessageBox::No);
+	if (confirmation.exec() != QMessageBox::Yes)
+		return;
+
+	if (isGameListFileInUse(path))
+	{
+		QMessageBox::critical(this, tr("Delete Game File"), tr("This file is currently in use by the running game."));
+		return;
+	}
+
+	QFile file(path);
+	if (!file.moveToTrash())
+	{
+		QMessageBox::critical(this, tr("Delete Game File"), tr("Failed to move the file to the trash:\n\n%1").arg(file.errorString()));
+		return;
+	}
+
+	refreshGameList(false, false);
 }
 
 void MainWindow::clearGameListEntryPlayTime(const GameList::Entry& entry, const time_t entry_played_time)
