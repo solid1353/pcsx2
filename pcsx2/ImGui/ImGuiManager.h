@@ -59,6 +59,9 @@ namespace ImGuiManager
 	/// Renders any on-screen display elements.
 	void RenderOSD();
 
+	/// Returns whether transient overlays need another redraw. Called on the GS thread.
+	bool NeedsIdleRendering();
+
 	/// Returns the scale of all on-screen elements.
 	float GetGlobalScale();
 

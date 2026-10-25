@@ -1446,7 +1446,7 @@ namespace SaveStateSelectorUI
 	static std::array<ListEntry, VMManager::NUM_SAVE_STATE_SLOTS> s_slots;
 	static std::atomic_int32_t s_current_slot{0};
 
-	static float s_open_time = 0.0f;
+	static Common::Timer s_open_timer;
 	static float s_close_time = 0.0f;
 
 	static ImAnimatedFloat s_scroll_animated;
@@ -1465,7 +1465,7 @@ void SaveStateSelectorUI::Open(float open_time /* = DEFAULT_OPEN_TIME */)
 		return;
 	}
 
-	s_open_time = 0.0f;
+	s_open_timer.Reset();
 	s_close_time = open_time;
 
 	if (s_open)
@@ -1576,7 +1576,7 @@ void SaveStateSelectorUI::SelectNextSlot(bool open_selector)
 			if (!s_open)
 				Open();
 
-			s_open_time = 0.0f;
+			s_open_timer.Reset();
 		});
 	}
 	else
@@ -1596,7 +1596,7 @@ void SaveStateSelectorUI::SelectPreviousSlot(bool open_selector)
 			if (!s_open)
 				Open();
 
-			s_open_time = 0.0f;
+			s_open_timer.Reset();
 		});
 	}
 	else
@@ -1775,8 +1775,7 @@ void SaveStateSelectorUI::Draw()
 	ImGui::PopStyleColor();
 
 	// auto-close
-	s_open_time += io.DeltaTime;
-	if (s_open_time >= s_close_time)
+	if (s_open_timer.GetTimeSeconds() >= s_close_time)
 		Close();
 }
 

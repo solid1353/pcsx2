@@ -7,6 +7,7 @@
 #include "MTVU.h"
 #include "Host.h"
 #include "IconsFontAwesome.h"
+#include "ImGui/ImGuiManager.h"
 #include "VMManager.h"
 
 #include "common/FPControl.h"
@@ -324,7 +325,10 @@ void MTGS::MainLoop()
 
 	while (true)
 	{
-		if (s_run_idle_flag.load(std::memory_order_acquire) && VMManager::GetState() != VMState::Running && GSHasDisplayWindow())
+		const VMState state = VMManager::GetState();
+		if (state != VMState::Running && GSHasDisplayWindow() &&
+			(s_run_idle_flag.load(std::memory_order_acquire) ||
+				(state == VMState::Paused && ImGuiManager::NeedsIdleRendering())))
 		{
 			if (!s_sem_event.CheckForWork())
 			{
@@ -1046,6 +1050,11 @@ void MTGS::SetRunIdle(bool enabled)
 {
 	// NOTE: Should only be called on the GS thread.
 	s_run_idle_flag.store(enabled, std::memory_order_release);
+}
+
+void MTGS::WakeForUI()
+{
+	s_sem_event.NotifyOfWork();
 }
 
 // Used in MTVU mode... MTVU will later complete a real packet

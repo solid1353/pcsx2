@@ -21,7 +21,7 @@ bool ShouldUseLeftAlignment(OsdOverlayPos position);
 
 namespace SaveStateSelectorUI
 {
-	static constexpr float DEFAULT_OPEN_TIME = 2.0f;
+	static constexpr float DEFAULT_OPEN_TIME = 1.0f;
 
 	void Open(float open_time = DEFAULT_OPEN_TIME);
 	void RefreshList(const std::string& serial, u32 crc);

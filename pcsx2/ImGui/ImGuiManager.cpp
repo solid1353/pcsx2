@@ -125,6 +125,7 @@ static constexpr float OSD_FADE_OUT_TIME = 0.4f;
 // need to keep track of this, so we can reinitialize on renderer switch
 static bool s_fullscreen_ui_was_initialized = false;
 static bool s_scale_changed = false;
+static bool s_transient_overlay_was_visible = false;
 
 static std::array<ImGuiManager::SoftwareCursor, InputManager::MAX_SOFTWARE_CURSORS> s_software_cursors = {};
 
@@ -225,6 +226,7 @@ bool ImGuiManager::InitializeFullscreenUI()
 
 void ImGuiManager::Shutdown(bool clear_state)
 {
+	s_transient_overlay_was_visible = false;
 	DestroySoftwareCursorTextures();
 
 	FullscreenUI::Shutdown(clear_state);
@@ -824,8 +826,11 @@ void Host::AddKeyedOSDMessage(std::string key, std::string message, float durati
 	msg.target_y = -1.0f;
 	msg.last_y = -1.0f;
 
-	std::unique_lock<std::mutex> lock(s_osd_messages_lock);
-	s_osd_posted_messages.push_back(std::move(msg));
+	{
+		std::unique_lock<std::mutex> lock(s_osd_messages_lock);
+		s_osd_posted_messages.push_back(std::move(msg));
+	}
+	MTGS::WakeForUI();
 }
 
 void Host::AddIconOSDMessage(std::string key, const char* icon, const std::string_view message, float duration /* = 2.0f */)
@@ -846,8 +851,11 @@ void Host::AddIconOSDMessage(std::string key, const char* icon, const std::strin
 	msg.target_y = -1.0f;
 	msg.last_y = -1.0f;
 
-	std::unique_lock<std::mutex> lock(s_osd_messages_lock);
-	s_osd_posted_messages.push_back(std::move(msg));
+	{
+		std::unique_lock<std::mutex> lock(s_osd_messages_lock);
+		s_osd_posted_messages.push_back(std::move(msg));
+	}
+	MTGS::WakeForUI();
 }
 
 void Host::RemoveKeyedOSDMessage(std::string key)
@@ -856,8 +864,11 @@ void Host::RemoveKeyedOSDMessage(std::string key)
 	msg.key = std::move(key);
 	msg.duration = 0.0f;
 
-	std::unique_lock<std::mutex> lock(s_osd_messages_lock);
-	s_osd_posted_messages.push_back(std::move(msg));
+	{
+		std::unique_lock<std::mutex> lock(s_osd_messages_lock);
+		s_osd_posted_messages.push_back(std::move(msg));
+	}
+	MTGS::WakeForUI();
 }
 
 void Host::ClearOSDMessages()
@@ -872,9 +883,6 @@ void Host::ClearOSDMessages()
 
 void ImGuiManager::AcquirePendingOSDMessages(Common::Timer::Value current_time)
 {
-	std::atomic_thread_fence(std::memory_order_consume);
-	if (s_osd_posted_messages.empty())
-		return;
 	std::unique_lock lock(s_osd_messages_lock);
 	for (;;)
 	{
@@ -1059,9 +1067,13 @@ void ImGuiManager::RenderOSD()
 
 	const Common::Timer::Value current_time = Common::Timer::GetCurrentValue();
 	AcquirePendingOSDMessages(current_time);
+	s_transient_overlay_was_visible = false;
 
 	if (!FullscreenUI::HasActiveWindow())
 	{
+		// Keep one more redraw after a selector closes or the last message expires, to clear it from the display.
+		s_transient_overlay_was_visible = SaveStateSelectorUI::IsOpen() || !s_osd_active_messages.empty();
+
 		// Don't draw OSD when we're just running big picture.
 		if (VMManager::HasValidVM())
 			RenderOverlays();
@@ -1071,6 +1083,15 @@ void ImGuiManager::RenderOSD()
 
 	// Cursors are always last.
 	DrawSoftwareCursors();
+}
+
+bool ImGuiManager::NeedsIdleRendering()
+{
+	if (s_transient_overlay_was_visible || SaveStateSelectorUI::IsOpen() || !s_osd_active_messages.empty())
+		return true;
+
+	std::unique_lock lock(s_osd_messages_lock);
+	return !s_osd_posted_messages.empty();
 }
 
 float ImGuiManager::GetGlobalScale()
