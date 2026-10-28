@@ -61,6 +61,7 @@
 #include <QtGui/QDragEnterEvent>
 #include <QtGui/QDropEvent>
 #include <QtGui/QMouseEvent>
+#include <QtGui/QPainter>
 #include <QtWidgets/QFileDialog>
 #include <QtWidgets/QInputDialog>
 #include <QtWidgets/QLineEdit>
@@ -69,6 +70,8 @@
 #include <QtWidgets/QSlider>
 #include <QtWidgets/QStyle>
 #include <QtWidgets/QStyleFactory>
+#include <QtWidgets/QStyleOptionToolButton>
+#include <QtWidgets/QStylePainter>
 #include <QtWidgets/QWidgetAction>
 #include <QtWidgets/QHBoxLayout>
 
@@ -119,6 +122,68 @@ static bool s_record_on_start = false;
 static QString s_path_to_recording_for_record_on_start;
 
 static constexpr const char* TOOLBAR_ACTION_MIME_TYPE = "application/x-pcsx2-toolbar-action";
+
+namespace
+{
+	class StatusLabel final : public QLabel
+	{
+	public:
+		using QLabel::QLabel;
+
+		QSize minimumSizeHint() const override
+		{
+			QSize size = QLabel::minimumSizeHint();
+			size.setWidth(contentsMargins().left() + contentsMargins().right());
+			return size;
+		}
+
+	protected:
+		void paintEvent(QPaintEvent* event) override
+		{
+			const QRect text_rect = contentsRect();
+			if (fontMetrics().horizontalAdvance(text()) <= text_rect.width())
+			{
+				QLabel::paintEvent(event);
+				return;
+			}
+
+			QPainter painter(this);
+			painter.setClipRect(text_rect);
+			style()->drawItemText(&painter, text_rect, alignment(), palette(), isEnabled(),
+				fontMetrics().elidedText(text(), Qt::ElideRight, std::max(0, text_rect.width())), foregroundRole());
+		}
+	};
+
+	class StatusSpeedButton final : public QToolButton
+	{
+	public:
+		using QToolButton::QToolButton;
+
+		QSize minimumSizeHint() const override
+		{
+			QSize size = sizeHint();
+			size.setWidth(std::max(0, size.width() - fontMetrics().horizontalAdvance(text())));
+			return size;
+		}
+
+	protected:
+		void paintEvent(QPaintEvent*) override
+		{
+			QStyleOptionToolButton option;
+			initStyleOption(&option);
+			const int decoration_width = minimumSizeHint().width();
+			option.text = fontMetrics().elidedText(text(), Qt::ElideRight, std::max(0, width() - decoration_width));
+			QStylePainter painter(this);
+			painter.drawComplexControl(QStyle::CC_ToolButton, option);
+		}
+	};
+
+	void SetStatusLabelText(QLabel* label, const QString& text)
+	{
+		label->setText(text);
+		label->setToolTip(text);
+	}
+} // namespace
 
 static bool isGameListFileInUse(const QString& path)
 {
@@ -650,22 +715,22 @@ void MainWindow::setupStatusBarWidgets()
 	m_status_progress_widget->setMaximum(100);
 	m_status_progress_widget->hide();
 
-	m_status_verbose_widget = new QLabel(m_ui.statusBar);
+	m_status_verbose_widget = new StatusLabel(m_ui.statusBar);
 	m_status_verbose_widget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 	m_status_verbose_widget->setContentsMargins(10, 0, 10, 0);
 	m_status_verbose_widget->setFixedHeight(20);
 	m_status_verbose_widget->setMinimumWidth(20);
 	m_status_verbose_widget->hide();
 
-	m_status_renderer_widget = new QLabel(m_ui.statusBar);
-	m_status_renderer_widget->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+	m_status_renderer_widget = new StatusLabel(m_ui.statusBar);
+	m_status_renderer_widget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
 	m_status_renderer_widget->setContentsMargins(10, 0, 10, 0);
 	m_status_renderer_widget->setAlignment(Qt::AlignCenter);
 	m_status_renderer_widget->setFixedHeight(20);
 	m_status_renderer_widget->hide();
 
-	m_status_resolution_widget = new QLabel(m_ui.statusBar);
-	m_status_resolution_widget->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+	m_status_resolution_widget = new StatusLabel(m_ui.statusBar);
+	m_status_resolution_widget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
 	m_status_resolution_widget->setContentsMargins(10, 0, 10, 0);
 	m_status_resolution_widget->setAlignment(Qt::AlignCenter);
 	m_status_resolution_widget->setFixedHeight(20);
@@ -720,8 +785,8 @@ void MainWindow::setupStatusBarWidgets()
 	volume_layout->addWidget(m_status_volume_label);
 	m_status_volume_widget->hide();
 
-	m_status_speed_widget = new QToolButton(m_ui.statusBar);
-	m_status_speed_widget->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+	m_status_speed_widget = new StatusSpeedButton(m_ui.statusBar);
+	m_status_speed_widget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
 	m_status_speed_widget->setContentsMargins(10, 0, 10, 0);
 	m_status_speed_widget->setAutoRaise(true);
 	m_status_speed_widget->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
@@ -737,22 +802,22 @@ void MainWindow::setupStatusBarWidgets()
 	m_status_speed_widget->setMenu(m_status_speed_menu);
 	m_status_speed_widget->hide();
 
-	m_status_gpu_widget = new QLabel(m_ui.statusBar);
-	m_status_gpu_widget->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+	m_status_gpu_widget = new StatusLabel(m_ui.statusBar);
+	m_status_gpu_widget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
 	m_status_gpu_widget->setContentsMargins(10, 0, 10, 0);
 	m_status_gpu_widget->setAlignment(Qt::AlignCenter);
 	m_status_gpu_widget->setFixedHeight(20);
 	m_status_gpu_widget->hide();
 
-	m_status_fps_widget = new QLabel(m_ui.statusBar);
-	m_status_fps_widget->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+	m_status_fps_widget = new StatusLabel(m_ui.statusBar);
+	m_status_fps_widget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
 	m_status_fps_widget->setContentsMargins(10, 0, 10, 0);
 	m_status_fps_widget->setAlignment(Qt::AlignCenter);
 	m_status_fps_widget->setFixedHeight(20);
 	m_status_fps_widget->hide();
 
-	m_status_vps_widget = new QLabel(m_ui.statusBar);
-	m_status_vps_widget->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+	m_status_vps_widget = new StatusLabel(m_ui.statusBar);
+	m_status_vps_widget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
 	m_status_vps_widget->setContentsMargins(10, 0, 10, 0);
 	m_status_vps_widget->setAlignment(Qt::AlignCenter);
 	m_status_vps_widget->setFixedHeight(20);
@@ -1602,17 +1667,17 @@ void MainWindow::updateStatusBarWidgetVisibility()
 
 void MainWindow::setStatusVerboseText(const QString& text)
 {
-	m_status_verbose_widget->setText(text);
+	SetStatusLabelText(m_status_verbose_widget, text);
 }
 
 void MainWindow::setStatusRendererText(const QString& text)
 {
-	m_status_renderer_widget->setText(text);
+	SetStatusLabelText(m_status_renderer_widget, text);
 }
 
 void MainWindow::setStatusResolutionText(const QString& text)
 {
-	m_status_resolution_widget->setText(text);
+	SetStatusLabelText(m_status_resolution_widget, text);
 }
 
 void MainWindow::toggleMute()
@@ -1636,22 +1701,23 @@ void MainWindow::setStatusVolume(int volume, bool muted)
 
 void MainWindow::setStatusGPUText(const QString& text)
 {
-	m_status_gpu_widget->setText(text);
+	SetStatusLabelText(m_status_gpu_widget, text);
 }
 
 void MainWindow::setStatusFPSText(const QString& text)
 {
-	m_status_fps_widget->setText(text);
+	SetStatusLabelText(m_status_fps_widget, text);
 }
 
 void MainWindow::setStatusVPSText(const QString& text)
 {
-	m_status_vps_widget->setText(text);
+	SetStatusLabelText(m_status_vps_widget, text);
 }
 
 void MainWindow::setStatusSpeedText(const QString& text)
 {
 	m_status_speed_widget->setText(text);
+	m_status_speed_widget->setToolTip(text);
 }
 
 void MainWindow::updateWindowTitle()
