@@ -30,9 +30,9 @@ nor its release reaches any hotkey or pad binding
 
 A save state's GS dump records the 4 frames after the save, so it is written
 only once those frames run. Saving to a slot then shows "Saved GS dump to slot
-N." when the dump is written, or "GS dump for slot N was discarded." when
-loading a state, resetting, or closing the game drops it first
-(`pcsx2/VMManager.cpp`).
+N." when the dump is written, "Failed to save GS dump to slot N." when writing
+it fails, or "GS dump for slot N was discarded." when loading a state,
+resetting, or closing the game drops it first (`pcsx2/VMManager.cpp`).
 
 - [Launch options](launch_options.md): command-line options for windows,
   speed, settings, memory cards, PINE, and agent replay.

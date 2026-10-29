@@ -2215,13 +2215,23 @@ static void PublishSaveStateGSDump(VMManager::SaveStateGSDump& request)
 	if (!request.saved || request.data.empty())
 		return;
 
-	bool any_written = false;
+	bool any_failed = false;
 	for (const std::string& directory : request.directories)
-		any_written = WriteSaveStateGSDump(directory, request.data) || any_written;
+		any_failed = !WriteSaveStateGSDump(directory, request.data) || any_failed;
+	const bool any_attempted = !request.directories.empty();
 	request.directories.clear();
 	request.data.clear();
 
-	if (any_written && request.slot_for_message >= 0 && VMManager::HasValidVM())
+	if (!any_attempted || request.slot_for_message < 0 || !VMManager::HasValidVM())
+		return;
+
+	if (any_failed)
+	{
+		Host::AddIconOSDMessage(fmt::format("SaveStateGSDump{}", request.slot_for_message), ICON_FA_TRIANGLE_EXCLAMATION,
+			fmt::format(TRANSLATE_FS("VMManager", "Failed to save GS dump to slot {}."), request.slot_for_message),
+			Host::OSD_QUICK_DURATION);
+	}
+	else
 	{
 		Host::AddIconOSDMessage(fmt::format("SaveStateGSDump{}", request.slot_for_message), ICON_FA_FLOPPY_DISK,
 			fmt::format(TRANSLATE_FS("VMManager", "Saved GS dump to slot {}."), request.slot_for_message),
