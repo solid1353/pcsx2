@@ -86,6 +86,7 @@ namespace VMManager
 		// Accessed only on the CPU thread; workers and the GS thread just retain the request.
 		std::vector<std::string> directories;
 		std::vector<u8> data;
+		s32 slot_for_message = -1;
 		bool saved = false;
 	};
 	static std::vector<std::weak_ptr<SaveStateGSDump>> s_save_state_gs_dumps;
@@ -96,6 +97,14 @@ namespace VMManager
 		{
 			if (const auto dump = request.lock())
 			{
+				// Directories are cleared once the dump is written, so only unfinished dumps are reported.
+				if (!dump->directories.empty() && dump->slot_for_message >= 0)
+				{
+					Host::AddIconOSDMessage(fmt::format("SaveStateGSDump{}", dump->slot_for_message),
+						ICON_FA_TRIANGLE_EXCLAMATION,
+						fmt::format(TRANSLATE_FS("VMManager", "GS dump for slot {} was discarded."), dump->slot_for_message),
+						Host::OSD_QUICK_DURATION);
+				}
 				dump->directories.clear();
 				dump->data.clear();
 			}
@@ -2181,7 +2190,7 @@ void VMManager::UpdateSaveStateGSDumpPaths(const std::string& source, const std:
 	}
 }
 
-static void WriteSaveStateGSDump(const std::string& directory, const std::vector<u8>& data)
+static bool WriteSaveStateGSDump(const std::string& directory, const std::vector<u8>& data)
 {
 	const std::string filename = Path::Combine(directory, "GS.gs.zst");
 	const std::string temporary_filename = filename + ".tmp";
@@ -2194,7 +2203,11 @@ static void WriteSaveStateGSDump(const std::string& directory, const std::vector
 		written = (std::fclose(fp) == 0) && written;
 	}
 	if (!written || !FileSystem::RenamePath(temporary_filename.c_str(), filename.c_str()))
+	{
 		Console.Warning("Failed to save savestate GS dump to '%s'.", filename.c_str());
+		return false;
+	}
+	return true;
 }
 
 static void PublishSaveStateGSDump(VMManager::SaveStateGSDump& request)
@@ -2202,9 +2215,18 @@ static void PublishSaveStateGSDump(VMManager::SaveStateGSDump& request)
 	if (!request.saved || request.data.empty())
 		return;
 
+	bool any_written = false;
 	for (const std::string& directory : request.directories)
-		WriteSaveStateGSDump(directory, request.data);
+		any_written = WriteSaveStateGSDump(directory, request.data) || any_written;
+	request.directories.clear();
 	request.data.clear();
+
+	if (any_written && request.slot_for_message >= 0 && VMManager::HasValidVM())
+	{
+		Host::AddIconOSDMessage(fmt::format("SaveStateGSDump{}", request.slot_for_message), ICON_FA_FLOPPY_DISK,
+			fmt::format(TRANSLATE_FS("VMManager", "Saved GS dump to slot {}."), request.slot_for_message),
+			Host::OSD_QUICK_DURATION);
+	}
 }
 
 static void QueueSaveStateGSDump(std::shared_ptr<VMManager::SaveStateGSDump> request)
@@ -2283,6 +2305,7 @@ void VMManager::DoSaveState(const char* filename, s32 slot_for_message, bool sav
 	{
 		gs_dump = std::make_shared<SaveStateGSDump>();
 		gs_dump->directories.emplace_back(filename);
+		gs_dump->slot_for_message = slot_for_message;
 		std::erase_if(s_save_state_gs_dumps, [](const auto& request) { return request.expired(); });
 		s_save_state_gs_dumps.push_back(gs_dump);
 		QueueSaveStateGSDump(gs_dump);
